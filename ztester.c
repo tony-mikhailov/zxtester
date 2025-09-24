@@ -4,9 +4,13 @@
 #include "ws2812.pio.h"
 #include "hardware/i2c.h"
 #include "ssd1306.h"
-#include "font.h"
+#include "math.h"
+#include "stdio.h"
 
-
+// OLED Configuration
+#define I2C_PORT i2c1
+#define I2C_SDA 6
+#define I2C_SCL 7
 
 #define IS_RGBW false
 #define NUM_PIXELS 1
@@ -88,36 +92,116 @@ void color_wheel_effect() {
     }
 }
 
+
+//----- OLED
+void init_oled() {
+    i2c_init(I2C_PORT, 100 * 1000);
+    set_rgb(0, 127, 0);
+
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
+}
+
+void init_i2c_safe() {
+    // First, set pins to input to avoid conflicts
+    gpio_init(I2C_SDA);
+    gpio_init(I2C_SCL);
+    gpio_set_dir(I2C_SDA, GPIO_IN);
+    gpio_set_dir(I2C_SCL, GPIO_IN);
+    
+    // Initialize I2C with safe speed
+    i2c_init(I2C_PORT, 400000);
+    
+    // Set pin functions
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    
+    // Enable pull-ups
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
+    
+    // Brief delay to let I2C stabilize
+    sleep_ms(100);
+}
+
+void i2c_scan() {
+    printf("Scanning I2C bus...\n");
+    
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        if (addr % 16 == 0) printf("\n0x%02x: ", addr);
+        
+        uint8_t rxdata;
+        int ret = i2c_read_blocking(I2C_PORT, addr, &rxdata, 1, false);
+        
+        if (ret == PICO_ERROR_GENERIC) {
+            printf(".. ");
+        } else if (ret == 1) {
+            printf("%02x ", addr);
+        } else {
+            printf("ER ");
+        }
+        sleep_ms(1);
+    }
+    printf("\nScan complete.\n");
+}
+
+
 int main() {
     stdio_init_all();
     ws2812_init();
-    
- 
-    
-    printf("OLED Display Test\n");
+    init_i2c_safe();
+    //i2c_scan();
 
+    // stdio_init_all();
+
+    set_rgb(0, 0, 127);
+
+    // init_oled();
+    // set_rgb(0, 127, 0);
+
+    ssd1306_t disp;
+    disp.external_vcc = false;
+    ssd1306_init(&disp, 128, 64, 0x3C, I2C_PORT);
+//    ssd1306_init(&disp, 128, 64, 0x3D, I2C_PORT);
+    ssd1306_fill(&disp);
+
+
+    ssd1306_draw_string(&disp, 1, 1, 2, "abcdefghijklmnopqrstuvwxyz");
+    ssd1306_show(&disp);
+
+
+//    printf("OLED Display Test\n");
+
+    set_rgb(0, 127, 0);
 
     while (true) {
-        // Red
-        set_rgb(255, 0, 0);
-        sleep_ms(1000);
-        
-        // Green
-        set_rgb(0, 255, 0);
-        sleep_ms(1000);
-        
-        // Blue
-        set_rgb(0, 0, 255);
-        sleep_ms(1000);
-        
-        // Rainbow cycle using HSV
-        for (int hue = 0; hue < 360; hue += 5) {
-            set_hsv(hue, 100, 100);
-            sleep_ms(50);
-        }
+        // set_rgb(40, 40, 40);
+        //ssd1306_clear(&disp);
 
-	color_wheel_effect();
-	fade_effect();
-	breathing_effect(32, 84, 92);
+        // // Red
+        // set_rgb(255, 0, 0);
+        // sleep_ms(1000);
+        // ssd1306_draw_string(&disp, 10, 10, 1, "1");
+        
+        // // Green
+        // set_rgb(0, 255, 0);
+        // sleep_ms(1000);
+        
+        // // Blue
+        // set_rgb(0, 0, 255);
+        // sleep_ms(1000);
+        
+        // // Rainbow cycle using HSV
+        // for (int hue = 0; hue < 360; hue += 5) {
+        //     set_hsv(hue, 100, 100);
+        //     sleep_ms(50);
+        //     ssd1306_draw_string(&disp, 0, 0, 1, "1");
+        // }
+
+        // color_wheel_effect();
+        // fade_effect();
+        // breathing_effect(32, 84, 92);
     }
 }

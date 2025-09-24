@@ -1,5 +1,6 @@
 #include "ssd1306.h"
 #include "font.h"
+#include "string.h"
 
 void ssd1306_write_command(ssd1306_t *disp, uint8_t cmd) {
     uint8_t buf[2] = {0x00, cmd};
@@ -11,7 +12,7 @@ void ssd1306_init(ssd1306_t *disp, uint8_t width, uint8_t height, uint8_t addres
     disp->address = address;
     disp->width = width;
     disp->height = height;
-    disp->external_vcc = false;
+//    disp->external_vcc = false;
     
     // Initialize sequence
     ssd1306_write_command(disp, 0xAE); // Display off
@@ -42,12 +43,29 @@ void ssd1306_init(ssd1306_t *disp, uint8_t width, uint8_t height, uint8_t addres
     ssd1306_write_command(disp, 0x14);
     ssd1306_write_command(disp, 0xAF); // Display on
     
-    ssd1306_clear(disp);
+    // ssd1306_clear(disp);
+    //  ssd1306_write_command(disp, 0xAE); // Display off
+    // ssd1306_write_command(disp, 0x20); // Memory mode
+    // ssd1306_write_command(disp, 0x00); // Horizontal
+    // ssd1306_write_command(disp, 0xB0); // Page start
+    // // Add more initialization commands as needed
+    // ssd1306_write_command(disp, 0xAF); // Display on
+    
+    // Clear display
+    for (int i = 0; i < sizeof(disp->buffer); i++) {
+        disp->buffer[i] = 1;
+    }
 }
 
 void ssd1306_clear(ssd1306_t *disp) {
     for (int i = 0; i < sizeof(disp->buffer); i++) {
         disp->buffer[i] = 0;
+    }
+}
+
+void ssd1306_fill(ssd1306_t *disp) {
+    for (int i = 0; i < sizeof(disp->buffer); i++) {
+        disp->buffer[i] = 1;
     }
 }
 
@@ -73,6 +91,8 @@ void ssd1306_draw_pixel(ssd1306_t *disp, uint8_t x, uint8_t y, bool on) {
         disp->buffer[index] &= ~(1 << (y % 8));
     }
 }
+
+void ssd1306_draw_char(ssd1306_t *disp, uint8_t x, uint8_t y, uint8_t scale, char c);
 
 void ssd1306_draw_string(ssd1306_t *disp, uint8_t x, uint8_t y, uint8_t scale, const char *str) {
     while (*str) {
