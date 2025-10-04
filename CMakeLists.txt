@@ -21,6 +21,8 @@ add_executable(${TARGET}
 # pico_generate_pio_header(${TARGET} ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
 pico_generate_pio_header(${TARGET} ${CMAKE_CURRENT_LIST_DIR}/pio_squarewave.pio)
 
+#define PICO_CLOCK_ADJUST_PERI_CLOCK_WITH_SYS_CLOCK 1
+target_compile_definitions(${TARGET} PRIVATE PICO_CLOCK_ADJUST_PERI_CLOCK_WITH_SYS_CLOCK=1)
 target_link_libraries(${TARGET} 
 	pico_stdlib 
 	# pico_multicore 
