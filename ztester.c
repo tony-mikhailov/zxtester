@@ -2,7 +2,7 @@
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
 #include "hardware/sync.h"
-#include "pio_squarewave.pio.h" // Автоматически сгенерированный файл
+#include "pio_squarewave.pio.h" 
 
 #define OUTPUT_PIN 14
 
