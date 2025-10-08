@@ -9,7 +9,10 @@
 
 #include "ssd1306.h"
 
+#ifdef ONBOARD_RGB
 #include "ws2812.pio.h"
+#endif
+
 #include "counter.pio.h"
 
 // UART
@@ -28,9 +31,11 @@
 #define I2C_SCL 7
 
 // RGB
+#ifdef ONBOARD_RGB
 #define IS_RGBW false
 #define NUM_PIXELS 1
 #define WS2812_PIN 16
+#endif
 
 // PIO
 PIO pio = pio0;
@@ -74,6 +79,7 @@ void set_hsv(uint16_t hue, uint8_t sat, uint8_t val) {
     set_rgb((r + m) * 255, (g + m) * 255, (b + m) * 255);
 }
 
+#ifdef ONBOARD_RGB
 // Initialize the WS2812 LED
 void ws2812_init() {
     uint offset = pio_add_program(pio, &ws2812_program);
@@ -108,7 +114,7 @@ void color_wheel_effect() {
         sleep_ms(20);
     }
 }
-
+#endif
 
 //----- OLEDCH340 driver
 void init_oled() {
@@ -198,13 +204,17 @@ void counter_init(uint pin) {
     pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
     sm_config_set_in_pins(&config, pin);
     sm_config_set_jmp_pin(&config, pin);
+    gpio_pull_up(pin);
+
     
     // Настраиваем сдвиговые регистры
-    sm_config_set_in_shift(&config, false, false, 32);
-    sm_config_set_out_shift(&config, false, false, 32);
+    // sm_config_set_in_shift(&config, false, false, 32);
+    // sm_config_set_out_shift(&config, false, false, 32);
+    sm_config_set_in_shift(&config, true, true, 32);
+    sm_config_set_out_shift(&config, true, true, 32);
     
     // Настраиваем FIFO
-    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_NONE);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
     
     // Настраиваем clock divider (максимальная скорость)
     sm_config_set_clkdiv(&config, 1.0f);
@@ -222,29 +232,38 @@ void counter_init(uint pin) {
 }
 
 // Функция чтения счетчика из PIO
-// uint32_t pio_counter_read() {
-//     // Останавливаем SM для чтения
-//     pio_sm_set_enabled(pio, sm, false);
+uint32_t pio_counter_read2() {
+    // Останавливаем SM для чтения
+    pio_sm_set_enabled(pio, sm, false);
     
-//     // Сохраняем текущее состояние
-//     pio_sm_exec(pio, sm, pio_encode_push(false, true));
+    // Сохраняем текущее состояние
+    pio_sm_exec(pio, sm, pio_encode_push(false, true));
     
-//     // Читаем значение
-//     uint32_t count = pio_sm_get(pio, sm);
+    // Читаем значение
+    uint32_t count = pio_sm_get(pio, sm);
     
-//     // Перезапускаем SM
-//     pio_sm_restart(pio, sm);
-//     pio_sm_set_enabled(pio, sm, true);
+    // Перезапускаем SM
+    pio_sm_restart(pio, sm);
+    pio_sm_set_enabled(pio, sm, true);
     
-//     return count;
-// }
+    return count;
+}
 
 uint32_t pio_counter_read() {
-    if (!pio_sm_is_rx_fifo_empty(pio, sm)) {
-        return pio_sm_get(pio, sm);
-    } else {
-        return 0;
+    static uint32_t last_value = 0;
+    
+    while (!pio_sm_is_rx_fifo_empty(pio, sm)) {
+        last_value = last_value + pio_sm_get(pio, sm);
     }
+    return last_value;
+}
+
+uint32_t pio_counter_read3() {
+    static uint32_t last_value = 0;
+    if (!pio_sm_is_rx_fifo_empty(pio, sm)) {
+        last_value = pio_sm_get(pio, sm);
+    }
+    return last_value;
 }
 
 // Альтернативный метод с использованием прерываний PIO
@@ -265,9 +284,9 @@ void counter_init_with_irq(uint pin) {
     sm_config_set_clkdiv(&config, 1.0f);
     
     // Настройка прерываний
-    // pio_set_irq0_source_enabled(pio, pis_interrupt0, true);
-    // irq_set_exclusive_handler(PIO0_IRQ_0, pio_irq_handler);
-    // irq_set_enabled(PIO0_IRQ_0, true);
+    pio_set_irq0_source_enabled(pio, pis_interrupt0, true);
+    irq_set_exclusive_handler(PIO0_IRQ_0, pio_irq_handler);
+    irq_set_enabled(PIO0_IRQ_0, true);
     
     pio_sm_init(pio, sm, offset, &config);
     
@@ -311,11 +330,9 @@ int main() {
 
     // set_rgb(0, 127, 0);
 
-
     printf("Started... %1");
 
-
-    const uint COUNT_PIN = 2;  // GPIO 15
+    const uint COUNT_PIN = 2; 
     
     counter_init(COUNT_PIN);
     
@@ -323,15 +340,16 @@ int main() {
     uint32_t last_count = 0;
 
     while (true) {
-        uint32_t current_count = pio_counter_read();
+        uint32_t current_count = 0xffffffff - pio_counter_read2();
+        //uint32_t current_count = pio_sm_get_blocking(pio, sm);
+        //uint32_t current_count = pulse_count;
         
-        // Выводим статистику каждую секунду
         uint32_t current_time = time_us_32();
         if (current_time - last_display_time >= 2000000) {
             uint32_t delta = current_count - last_count;
             float frequency = (float)delta / ((current_time - last_display_time) / 1000000.0f);
             
-            printf("Total pulses: %lu, Frequency: %.1f Hz\n", 
+            printf("Total pulses: %u, Frequency: %.1f Hz\n", 
                    current_count, frequency);
             
             last_count = current_count;
@@ -339,27 +357,5 @@ int main() {
         }
         //printf("long string abcdefghijklmnopqrstuvwxyz");
         sleep_ms(200);
-        
-
-        // ssd1306_draw_string(&disp, 10, 10, 1, "1");
-        
-        // // Green
-        // set_rgb(0, 255, 0);
-        // sleep_ms(1000);
-        
-        // // Blue
-        // set_rgb(0, 0, 255);
-        // sleep_ms(1000);
-        
-        // // Rainbow cycle using HSV
-        // for (int hue = 0; hue < 360; hue += 5) {
-        //     set_hsv(hue, 100, 100);
-        //     sleep_ms(50);
-        //     ssd1306_draw_string(&disp, 0, 0, 1, "1");
-        // }
-
-        // color_wheel_effect();
-        // fade_effect();
-        // breathing_effect(32, 84, 92);
     }
 }
