@@ -1,5 +1,8 @@
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
+#include "pico/multicore.h"
+#include "hardware/dma.h"
+#include "hardware/clocks.h"
 #include "hardware/uart.h"
 #include "hardware/i2c.h"
 #include "pico/stdlib.h"
@@ -8,6 +11,9 @@
 #include "stdio.h"
 #include "dutycycle.pio.h"
 #include "ssd1306.h"
+#include <string.h>
+
+#include "logic_analyzer.pio.h"
 
 #ifdef ONBOARD_RGB
 #include "ws2812.pio.h"
@@ -303,7 +309,192 @@ void counter_init_with_irq(uint pin) {
 
 #endif
 
-#define SIGNAL_PIN 29
+#define SIGNAL_PIN 8
+#define BTN_RIGHT_PIN 28
+#define BTN_LEFT_PIN 29
+
+ // GPIO пин для триггера (опциона8ьно)
+#define BUFFER_SIZE 51200       // Размер буфера в 32-битных словах
+#define SAMPLE_RATE 100000000  // Желаемая частота дискретизации (100 МГц)
+#define CAPTURE_INTERVAL_MS 1000 // Интервал между захватами в мс
+
+
+// Глобальные переменные
+uint32_t sample_buffer[BUFFER_SIZE];
+volatile bool capture_complete = false;
+volatile uint32_t samples_captured = 0;
+volatile uint32_t words_captured = 0;
+volatile uint32_t capture_count = 0;
+int dma_channel;
+
+// Обработчик прерывания DMA
+void dma_handler() {
+    if (dma_channel_get_irq0_status(dma_channel)) {
+        dma_channel_acknowledge_irq0(dma_channel);
+        capture_complete = true;
+        words_captured = BUFFER_SIZE;
+        samples_captured = BUFFER_SIZE * 32;
+        dma_channel_abort(dma_channel);
+    }
+}
+
+// Инициализация PIO для логического анализатора
+PIO setup_logic_analyzer_pio(uint sm, uint pin) {
+    PIO pio = pio0;
+    uint offset = pio_add_program(pio, &logic_analyzer_program);
+    
+    // Настройка GPIO
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
+    
+    // Конфигурация state machine
+    pio_sm_config c = logic_analyzer_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, pin);
+    
+    // Расчет делителя частоты
+    float div = clock_get_hz(clk_sys) / (SAMPLE_RATE * 32.0);
+    sm_config_set_clkdiv(&c, div);
+    
+    // Настройка сдвигового регистра
+    sm_config_set_in_shift(&c, true, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    
+    pio_sm_init(pio, sm, offset, &c);
+    return pio;
+}
+
+// Запуск захвата данных
+void start_capture() {
+    capture_complete = false;
+    samples_captured = 0;
+    words_captured = 0;
+    
+    // Настройка DMA
+    dma_channel_config config = dma_channel_get_default_config(dma_channel);
+    channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
+    channel_config_set_read_increment(&config, false);
+    channel_config_set_write_increment(&config, true);
+    channel_config_set_dreq(&config, pio_get_dreq(pio0, 0, false));
+    
+    dma_channel_configure(
+        dma_channel,
+        &config,
+        sample_buffer,
+        &pio0->rxf[0],
+        BUFFER_SIZE,
+        true
+    );
+    
+    // Запуск PIO state machine
+    pio_sm_clear_fifos(pio0, 0);
+    pio_sm_restart(pio0, 0);
+    pio_sm_set_enabled(pio0, 0, true);
+}
+
+// Остановка захвата
+void stop_capture() {
+    pio_sm_set_enabled(pio0, 0, false);
+    if (!capture_complete) {
+        dma_channel_abort(dma_channel);
+    }
+}
+
+// Анализ сигнала - подсчет переходов и статистики
+void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t capture_id) {
+    uint32_t high_count = 0;
+    uint32_t transitions = 0;
+    uint32_t pulse_widths[2] = {0, 0}; // [0] - low pulses, [1] - high pulses
+    uint32_t current_pulse_length = 0;
+    uint8_t last_state = (buffer[0] & 1);
+    uint8_t current_state;
+    
+    // Анализируем все захваченные данные
+    for (uint32_t i = 0; i < word_count; i++) {
+        uint32_t word = buffer[i];
+        
+        for (int bit = 0; bit < 32; bit++) {
+            current_state = (word >> bit) & 1;
+            
+            if (current_state) {
+                high_count++;
+            }
+            
+            if (current_state != last_state) {
+                transitions++;
+                pulse_widths[last_state] += current_pulse_length;
+                current_pulse_length = 1;
+                last_state = current_state;
+            } else {
+                current_pulse_length++;
+            }
+        }
+    }
+    
+    // Добавляем последний импульс
+    pulse_widths[last_state] += current_pulse_length;
+    
+    uint32_t total_samples = word_count * 32;
+    
+    // Вывод результатов анализа
+    printf("\n=== Capture #%lu ===\n", capture_id);
+    printf("Total samples: %lu\n", total_samples);
+    printf("High samples: %lu (%.1f%%)\n", high_count, (high_count * 100.0) / total_samples);
+    printf("Low samples: %lu (%.1f%%)\n", total_samples - high_count, 
+           ((total_samples - high_count) * 100.0) / total_samples);
+    printf("Transitions: %lu\n", transitions);
+    
+    if (transitions > 1) {
+        double estimated_freq = (transitions / 2.0) * (SAMPLE_RATE / (double)total_samples);
+        printf("Estimated frequency: %.2f Hz\n", estimated_freq);
+    }
+    
+    if (pulse_widths[0] > 0 && pulse_widths[1] > 0) {
+        printf("Average high pulse: %.2f samples\n", (float)pulse_widths[1] / (transitions / 2.0));
+        printf("Average low pulse: %.2f samples\n", (float)pulse_widths[0] / (transitions / 2.0));
+    }
+    
+    // Вывод первых нескольких слов для визуализации
+    printf("First 3 words (LSB first):\n");
+    for (int i = 0; i < 3 && i < word_count; i++) {
+        printf("  Word %d: 0x%08lx - ", i, buffer[i]);
+        for (int bit = 0; bit < 16; bit++) { // Показываем первые 16 бит
+            printf("%d", (buffer[i] >> bit) & 1);
+        }
+        printf("...\n");
+    }
+    
+    // Детектирование типичных сигналов
+    if (transitions == 0) {
+        printf("Signal: Constant %s\n", (high_count == total_samples) ? "HIGH" : "LOW");
+    } else if (transitions == 2 && high_count == total_samples / 2) {
+        printf("Signal: Perfect square wave\n");
+    } else if (transitions >= 4) {
+        printf("Signal: Periodic waveform\n");
+    }
+    
+    printf("Capture duration: %.3f ms\n", (total_samples * 1000.0) / SAMPLE_RATE);
+    printf("====================\n");
+}
+
+// Быстрый анализ для обнаружения активности
+bool detect_signal_activity(const uint32_t *buffer, uint32_t word_count) {
+    // Проверяем первые 64 слова на наличие переходов
+    uint32_t check_words = (word_count < 64) ? word_count : 64;
+    uint8_t last_state = (buffer[0] & 1);
+    
+    for (uint32_t i = 0; i < check_words; i++) {
+        uint32_t word = buffer[i];
+        
+        for (int bit = 0; bit < 32; bit++) {
+            uint8_t current_state = (word >> bit) & 1;
+            if (current_state != last_state) {
+                return true; // Обнаружен переход - есть активность
+            }
+            last_state = current_state;
+        }
+    }
+    return false; // Нет переходов - сигнал постоянный
+}
 
 int main() {
     stdio_init_all();
@@ -332,46 +523,99 @@ int main() {
     ssd1306_draw_string(&disp, 1, 1, 2, "test");
     ssd1306_show(&disp);
 
+
     // set_rgb(0, 127, 0);
 
     printf("Started...");
 
-#ifdef USING_PIO_COUNTER_PROGRAM
-    counter_init(COUNT_PIN);
-#endif
+  PIO pio = setup_logic_analyzer_pio(0, SIGNAL_PIN);
+    
+    // Инициализация DMA
+    dma_channel = dma_claim_unused_channel(true);
+    dma_channel_set_irq0_enabled(dma_channel, true);
+    irq_set_exclusive_handler(DMA_IRQ_0, dma_handler);
+    irq_set_enabled(DMA_IRQ_0, true);
+    
+    printf("Configuration:\n");
+    printf("  Sample pin: GPIO%d\n", SIGNAL_PIN);
+    printf("  Buffer size: %d words (%d samples)\n", BUFFER_SIZE, BUFFER_SIZE * 32);
+    printf("  Sample rate: %.2f MHz\n", SAMPLE_RATE / 1000000.0);
+    printf("  Capture interval: %d ms\n", CAPTURE_INTERVAL_MS);
+    printf("  Starting continuous capture...\n\n");
+    
+    uint32_t last_capture_time = time_us_32();
+    bool signal_detected = false;
+    uint32_t inactive_captures = 0;
 
-    // Configure state machine
-    pio_sm_config c = dutycycle_program_get_default_config(offset);
-    pio_gpio_init(pio, SIGNAL_PIN);
-    pio_sm_set_consecutive_pindirs(pio, sm, SIGNAL_PIN, 1, false);
-    sm_config_set_in_pins(&c, SIGNAL_PIN);
-    sm_config_set_jmp_pin(&c, SIGNAL_PIN);
-    sm_config_set_clkdiv(&c, 1.0f);
-
-    pio_sm_init(pio, sm, offset, &c);
-    pio_sm_set_enabled(pio, sm, true);
-
-    printf("RP2040 Frequency & Duty Cycle Measurement\n");
-    printf("Signal input: GPIO %d\n", SIGNAL_PIN);
-
-    while (true) {
-        // Wait for both high and low times (2 pushes)
-        if (pio_sm_get_rx_fifo_level(pio, sm) >= 2) {
-            uint32_t high_cycles = pio_sm_get(pio, sm);
-            uint32_t low_cycles = pio_sm_get(pio, sm);
-
-            uint32_t sys_clk = clock_get_hz(clk_sys);
-            float high_time = (float)high_cycles / sys_clk;
-            float low_time = (float)low_cycles / sys_clk;
-            float period = high_time + low_time;
-            float freq = period > 0 ? 1.0f / period : 0.0f;
-            float duty_plus = period > 0 ? (high_time / period) * 100.0f : 0.0f;
-            float duty_minus = period > 0 ? (low_time / period) * 100.0f : 0.0f;
-
-            printf("High: %.6f s | Low: %.6f s | Freq: %.2f Hz | Duty+: %.2f%% | Duty-: %.2f%%\n",
-                   high_time, low_time, freq, duty_plus, duty_minus);
+     while (true) {
+        uint32_t current_time = time_us_32();
+        
+        // Запускаем захват по истечении интервала
+        if (current_time - last_capture_time >= CAPTURE_INTERVAL_MS * 1000) {
+            capture_count++;
+            last_capture_time = current_time;
+            
+            printf("[%lu] Starting capture... ", capture_count);
+            start_capture();
+            
+            // Ожидаем завершения захвата
+            uint32_t capture_start = time_us_32();
+            while (!capture_complete) {
+                sleep_us(100);
+            }
+            uint32_t capture_duration = time_us_32() - capture_start;
+            
+            printf("done in %lu us | ", capture_duration);
+            
+            // Анализируем сигнал
+            bool activity = detect_signal_activity(sample_buffer, words_captured);
+            
+            if (activity) {
+                signal_detected = true;
+                inactive_captures = 0;
+                printf("ACTIVE - ");
+                // Детальный анализ для активных сигналов
+                analyze_signal(sample_buffer, words_captured, capture_count);
+            } else {
+                inactive_captures++;
+                printf("NO SIGNAL");
+                
+                // Периодически выводим статистику даже для отсутствия сигнала
+                if (inactive_captures % 10 == 0) {
+                    printf(" (%lu consecutive no-signal captures)", inactive_captures);
+                }
+                printf("\n");
+                
+                // Специальный вывод при первом обнаружении отсутствия сигнала после активности
+                if (signal_detected && inactive_captures == 1) {
+                    printf(">>> Signal lost after %lu active captures <<<\n", capture_count - inactive_captures);
+                    signal_detected = false;
+                }
+            }
+            
+            // Очистка буфера для следующего захвата
+            memset((void*)sample_buffer, 0, BUFFER_SIZE * sizeof(uint32_t));
+            
+            // Небольшая пауза перед следующим захватом
+            sleep_ms(10);
         }
-        sleep_ms(10);
+        
+        // Проверка на прерывание по пользовательскому вводу (опционально)
+        // if (stdio_usb_connected()) {
+        //     int c = getchar_timeout_us(0);
+        //     if (c == 'q' || c == 'Q') {
+        //         printf("\n\nStopping capture...\n");
+        //         stop_capture();
+        //         break;
+        //     } else if (c == 's' || c == 'S') {
+        //         printf("\n\nForce signal analysis:\n");
+        //         analyze_signal(sample_buffer, words_captured, capture_count);
+        //     }
+        // }
+        
+        sleep_ms(1);
     }
+    
+    return 0;
 
 }
