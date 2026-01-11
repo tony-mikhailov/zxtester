@@ -562,9 +562,15 @@ int main() {
             
             // Ожидаем завершения захвата
             uint32_t capture_start = time_us_32();
-//            while (!capture_complete) {
-            while (time_us_32() - capture_start < CAPTURE_INTERVAL_MS) {
-                sleep_us(100);
+            // Use blocking DMA wait as a robust fallback if IRQ isn't firing
+            dma_channel_wait_for_finish_blocking(dma_channel);
+            if (!capture_complete) {
+                // If the IRQ handler didn't run for some reason, mark capture done
+                capture_complete = true;
+                words_captured = BUFFER_SIZE;
+                samples_captured = BUFFER_SIZE * 32;
+                // Acknowledge any pending IRQ to keep state consistent
+                dma_channel_acknowledge_irq0(dma_channel);
             }
             uint32_t capture_duration = time_us_32() - capture_start;
             
