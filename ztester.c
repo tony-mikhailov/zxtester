@@ -192,6 +192,9 @@ void setup_uart() {
 
 
 
+
+#ifdef USING_PIO_COUNTER_PROGRAM
+
 volatile uint32_t pulse_count = 0;
 
 // Обработчик прерывания PIO для инкремента счетчика
@@ -200,8 +203,6 @@ void pio_irq_handler() {
     pulse_count++; // Увеличиваем счетчик
 }
 
-#ifdef USING_PIO_COUNTER_PROGRAM
- 
 void counter_init(uint pin) {
     // Загружаем PIO программу
     offset = pio_add_program(pio, &counter_program);
@@ -314,7 +315,7 @@ void counter_init_with_irq(uint pin) {
 #define BTN_LEFT_PIN 29
 
  // GPIO пин для триггера (опциона8ьно)
-#define BUFFER_SIZE 51200       // Размер буфера в 32-битных словах
+#define BUFFER_SIZE 128       // Размер буфера в 32-битных словах
 #define SAMPLE_RATE 100000000  // Желаемая частота дискретизации (100 МГц)
 #define CAPTURE_INTERVAL_MS 1000 // Интервал между захватами в мс
 
@@ -479,7 +480,8 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
 // Быстрый анализ для обнаружения активности
 bool detect_signal_activity(const uint32_t *buffer, uint32_t word_count) {
     // Проверяем первые 64 слова на наличие переходов
-    uint32_t check_words = (word_count < 64) ? word_count : 64;
+    // uint32_t check_words = (word_count < 64) ? word_count : 64;
+    uint32_t check_words = word_count;
     uint8_t last_state = (buffer[0] & 1);
     
     for (uint32_t i = 0; i < check_words; i++) {
@@ -528,7 +530,7 @@ int main() {
 
     printf("Started...");
 
-  PIO pio = setup_logic_analyzer_pio(0, SIGNAL_PIN);
+    PIO pio = setup_logic_analyzer_pio(0, SIGNAL_PIN);
     
     // Инициализация DMA
     dma_channel = dma_claim_unused_channel(true);
@@ -560,12 +562,13 @@ int main() {
             
             // Ожидаем завершения захвата
             uint32_t capture_start = time_us_32();
-            while (!capture_complete) {
+//            while (!capture_complete) {
+            while (time_us_32() - capture_start < CAPTURE_INTERVAL_MS) {
                 sleep_us(100);
             }
             uint32_t capture_duration = time_us_32() - capture_start;
             
-            printf("done in %lu us | ", capture_duration);
+            printf("done in %lu us, words_captured %lu", capture_duration, words_captured);
             
             // Анализируем сигнал
             bool activity = detect_signal_activity(sample_buffer, words_captured);
