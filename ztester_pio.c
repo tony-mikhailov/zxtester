@@ -325,7 +325,7 @@ int main() {
     ssd1306_init(&disp, 128, 64, 0x3C, I2C_PORT);
     ssd1306_fill(&disp);
 
-    ssd1306_draw_string(&disp, 1, 1, 2, "test");
+    ssd1306_draw_string(&disp, 1, 1, 2, "starting...");
     ssd1306_show(&disp);
 
     // set_rgb(0, 127, 0);
@@ -339,6 +339,8 @@ int main() {
     uint32_t last_display_time = time_us_32();
     uint32_t last_count = 0;
 
+
+    
     while (true) {
         uint32_t current_count = 0xffffffff - pio_counter_read2();
         //uint32_t current_count = pio_sm_get_blocking(pio, sm);
@@ -351,6 +353,8 @@ int main() {
             
             printf("Total pulses: %u, Frequency: %.1f Hz\n", 
                    current_count, frequency);
+
+
             
             last_count = current_count;
             last_display_time = current_time;

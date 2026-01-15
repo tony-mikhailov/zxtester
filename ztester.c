@@ -316,7 +316,8 @@ void counter_init_with_irq(uint pin) {
 
  // GPIO пин для триггера (опциона8ьно)
 #define BUFFER_SIZE 16       // Размер буфера в 32-битных словах
-#define SAMPLE_RATE 200000  // Желаемая частота дискретизации (200 kHz)
+//#define SAMPLE_RATE 200000  // Желаемая частота дискретизации (200 kHz)
+#define SAMPLE_RATE 10000000  // Желаемая частота дискретизации (200 kHz)
 #define CAPTURE_INTERVAL_MS 1000 // Интервал между захватами в мс
 
 
@@ -417,7 +418,7 @@ void stop_capture() {
 
 // Анализ сигнала - подсчет переходов и статистики
 // capture_duration_us: duration of the capture in microseconds
-void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t capture_id, uint32_t capture_duration_us) {
+void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t capture_id, uint32_t capture_duration_us, ssd1306_t *disp) {
     uint32_t high_count = 0;
     uint32_t transitions = 0;
     uint32_t pulse_widths[2] = {0, 0}; // [0] - low pulses, [1] - high pulses
@@ -469,6 +470,15 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
         }
         double estimated_freq = (transitions / 2.0) / capture_duration_s;
         printf("Estimated frequency: %.2f Hz\n", estimated_freq);
+
+            // printf("First 3 words (LSB first):\n");
+        char s[]={0};
+
+        sprintf(s, "%.1f Hz", estimated_freq);
+        ssd1306_fill(disp);
+        ssd1306_draw_string(disp, 1, 1, 2, s);
+        ssd1306_show(disp);
+
         if (g_actual_sample_rate > 0.0) {
             printf("(used computed capture duration %.3f ms from sample_rate %.2f Hz)\n", capture_duration_s*1000.0, g_actual_sample_rate);
         } else {
@@ -482,13 +492,15 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
     }
     
     // Вывод первых нескольких слов для визуализации
-    printf("First 3 words (LSB first):\n");
-    for (int i = 0; i < 3 && i < word_count; i++) {
-        printf("  Word %d: 0x%08lx - ", i, buffer[i]);
-        for (int bit = 0; bit < 16; bit++) { // Показываем первые 16 бит
+    // printf("First 3 words (LSB first):\n");
+    // for (int i = 0; i < 3 && i < word_count; i++) {
+    printf("First all words (LSB first):\n");
+    for (int i = 0; i < word_count; i++) {
+        printf("\n  Word %d: 0x%08lx - ", i, buffer[i]);
+        for (int bit = 0; bit < 32; bit++) { // Показываем первые 16 бит
             printf("%d", (buffer[i] >> bit) & 1);
         }
-        printf("...\n");
+        printf("n");
     }
     
     // Детектирование типичных сигналов
@@ -603,7 +615,7 @@ int main() {
                 dma_channel_acknowledge_irq0(dma_channel);
             }
             
-            printf("done in %lu us, words_captured %lu", capture_duration, words_captured);
+            printf("done in %lu us, words_captured %lu\n", capture_duration, words_captured);
             
             // Анализируем сигнал
             bool activity = detect_signal_activity(sample_buffer, words_captured);
@@ -613,7 +625,7 @@ int main() {
                 inactive_captures = 0;
                 printf("ACTIVE - ");
                 // Детальный анализ для активных сигналов
-                analyze_signal(sample_buffer, words_captured, capture_count, capture_duration);
+                analyze_signal(sample_buffer, words_captured, capture_count, capture_duration, &disp);
             } else {
                 inactive_captures++;
                 printf("NO SIGNAL");

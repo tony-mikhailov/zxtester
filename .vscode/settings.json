@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "font.h": "c",
+        "cstdint": "c",
+        "clocks.h": "c",
+        "stdlib.h": "c",
+        "ssd1306.h": "c",
+        "logic_analyzer.pio.h": "c"
+    }
+}
