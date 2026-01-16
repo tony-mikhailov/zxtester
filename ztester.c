@@ -315,9 +315,9 @@ void counter_init_with_irq(uint pin) {
 #define BTN_LEFT_PIN 29
 
  // GPIO пин для триггера (опциона8ьно)
-#define BUFFER_SIZE 16       // Размер буфера в 32-битных словах
+#define BUFFER_SIZE 32768       // Размер буфера в 32-битных словах
 //#define SAMPLE_RATE 200000  // Желаемая частота дискретизации (200 kHz)
-#define SAMPLE_RATE 10000000  // Желаемая частота дискретизации (200 kHz)
+// #define SAMPLE_RATE 10000000  // Желаемая частота дискретизации (200 kHz)
 #define CAPTURE_INTERVAL_MS 1000 // Интервал между захватами в мс
 
 
@@ -356,10 +356,11 @@ PIO setup_logic_analyzer_pio(uint sm, uint pin) {
     // Расчет делителя частоты
     // The PIO loop executes 3 instructions per sample: set, in, jmp
     // Each sample executes `in pins,1` and the following `jmp` (two instructions per sample).
-    const float cycles_per_sample = 2.0f;
-    float div = (float)clock_get_hz(clk_sys) / (SAMPLE_RATE * cycles_per_sample);
+    const float cycles_per_sample = 2.03125f;
+    // float div = (float)clock_get_hz(clk_sys) / (SAMPLE_RATE * cycles_per_sample);
+    float div = 1.0;
     // Clamp divider to minimum 1.0 (can't make SM faster than system clock)
-    if (div < 1.0f) div = 1.0f;
+    //if (div < 1.0f) div = 1.0f;
     sm_config_set_clkdiv(&c, div);
     // record achieved sample rate for later analysis
     double achieved_sm_clock = (double)clock_get_hz(clk_sys) / (double)div;
@@ -469,12 +470,12 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
             capture_duration_s = (double)capture_duration_us / 1e6;
         }
         double estimated_freq = (transitions / 2.0) / capture_duration_s;
-        printf("Estimated frequency: %.2f Hz\n", estimated_freq);
+        printf("Estimated frequency: %.0f Hz\n", estimated_freq);
 
             // printf("First 3 words (LSB first):\n");
         char s[]={0};
 
-        sprintf(s, "%.1f Hz", estimated_freq);
+        sprintf(s, "%.1f KHz", estimated_freq / 1000.0);
         ssd1306_fill(disp);
         ssd1306_draw_string(disp, 1, 1, 2, s);
         ssd1306_show(disp);
@@ -495,7 +496,7 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
     // printf("First 3 words (LSB first):\n");
     // for (int i = 0; i < 3 && i < word_count; i++) {
     printf("First all words (LSB first):\n");
-    for (int i = 0; i < word_count; i++) {
+    for (int i = 0; i < 10 && i < word_count; i++) {
         printf("\n  Word %d: 0x%08lx - ", i, buffer[i]);
         for (int bit = 0; bit < 32; bit++) { // Показываем первые 16 бит
             printf("%d", (buffer[i] >> bit) & 1);
@@ -539,11 +540,14 @@ bool detect_signal_activity(const uint32_t *buffer, uint32_t word_count) {
 
 int main() {
     stdio_init_all();
-
-    // pio_sm_config c = pio_get_default_sm_config();
-    // sm_config_set_in_shift(&c, true, true, 32);
-    // sm_config_set_clkdiv(&c, 1.0f);
-    // bool setclkres = set_sys_clock_khz(133000, true);
+    // Configure system clock (kHz). Adjust value if you need a different frequency.
+    // Example: set to 133 MHz -> 133000 kHz
+    float freq = 200000;// khz
+    set_sys_clock_khz(freq, true);
+    //     printf("Warning: failed to set sys clock to %.0f MHz\n", freq / 1000.0 );
+    // } else {
+    //     printf("System clock set to %lu MHz\n", (unsigned long)(clock_get_hz(clk_sys) / 1000));
+    // }
     
     //ws2812_init();
     //set_rgb(127, 0, 0);
@@ -567,7 +571,8 @@ int main() {
 
     // set_rgb(0, 127, 0);
 
-    printf("Started...");
+    printf("Starting...");
+    printf("System clock set to %lu MHz\n", (unsigned long)(clock_get_hz(clk_sys) / 1000));
 
     PIO pio = setup_logic_analyzer_pio(0, SIGNAL_PIN);
     
@@ -580,7 +585,7 @@ int main() {
     printf("Configuration:\n");
     printf("  Sample pin: GPIO%d\n", SIGNAL_PIN);
     printf("  Buffer size: %d words (%d samples)\n", BUFFER_SIZE, BUFFER_SIZE * 32);
-    printf("  Sample rate: %.2f MHz\n", SAMPLE_RATE / 1000000.0);
+    // printf("  Sample rate: %.2f MHz\n", sys_clock_h / 1000000.0);
     printf("  Capture interval: %d ms\n", CAPTURE_INTERVAL_MS);
     printf("  Starting continuous capture...\n\n");
     
@@ -592,7 +597,7 @@ int main() {
         uint32_t current_time = time_us_32();
         
         // Запускаем захват по истечении интервала
-        if (current_time - last_capture_time >= CAPTURE_INTERVAL_MS * 1000) {
+        // if (current_time - last_capture_time >= CAPTURE_INTERVAL_MS * 1000) {
             capture_count++;
             last_capture_time = current_time;
             
@@ -647,8 +652,8 @@ int main() {
             memset((void*)sample_buffer, 0, BUFFER_SIZE * sizeof(uint32_t));
             
             // Небольшая пауза перед следующим захватом
-            sleep_ms(10);
-        }
+            sleep_ms(100);
+        // }
         
         // Проверка на прерывание по пользовательскому вводу (опционально)
         // if (stdio_usb_connected()) {
@@ -663,7 +668,7 @@ int main() {
         //     }
         // }
         
-        sleep_ms(1);
+        // sleep_ms(1);
     }
     
     return 0;
