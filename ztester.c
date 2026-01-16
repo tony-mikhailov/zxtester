@@ -572,7 +572,7 @@ int main() {
     // set_rgb(0, 127, 0);
 
     printf("Starting...");
-    printf("System clock set to %lu MHz\n", (unsigned long)(clock_get_hz(clk_sys) / 1000));
+    printf("System clock set to %lu MHz\n", (unsigned long)(clock_get_hz(clk_sys) / 1000000.));
 
     PIO pio = setup_logic_analyzer_pio(0, SIGNAL_PIN);
     
