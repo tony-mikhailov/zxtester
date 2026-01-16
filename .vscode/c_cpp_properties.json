@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "name": "RP2040",
+            "includePath": [
+                "${workspaceFolder}/**",
+                // "${env:PICO_SDK_PATH}/**"
+                "/home/tony/space/devices/rp2040-zero-dev/pico-sdk/**"
+            ],
+            "defines": [
+                "PICO_DEFAULT_LED_PIN=25"
+            ],
+            "compilerPath": "/usr/bin/arm-none-eabi-gcc",
+            "cStandard": "c11",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-arm"
+        }
+    ],
+    "version": 4
+}
