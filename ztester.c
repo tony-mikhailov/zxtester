@@ -320,7 +320,7 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
         char s[10]={0};
 
         sprintf(s, "%.1f KHz", estimated_freq / 1000.0);
-        ssd1306_fill(disp, 1);
+        ssd1306_fill(disp, 0);
         ssd1306_draw_string(disp, 1, 1, 2, s);
         ssd1306_show(disp);
 
