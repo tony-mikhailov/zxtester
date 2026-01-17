@@ -9,11 +9,12 @@
 #include "pico/stdio.h"
 #include "math.h"
 #include "stdio.h"
-#include "dutycycle.pio.h"
 #include "ssd1306.h"
 #include <string.h>
 
 #include "logic_analyzer.pio.h"
+
+#define ONBOARD_RGB
 
 #ifdef ONBOARD_RGB
 #include "ws2812.pio.h"
@@ -45,21 +46,22 @@
 #define WS2812_PIN 16
 #endif
 
-// PIO
-PIO pio = pio0;
-int sm = 0;
-uint offset = 0;
+struct LedConfig
+{
+    PIO pio;
+    int sm;
+    uint sm_offset;
+} OnBoardLed = {pio1, 0 , 0};
 
-// Function to set RGB color (0-255 for each channel)
-void set_rgb(uint8_t r, uint8_t g, uint8_t b) {
+void set_rgb(uint8_t r, uint8_t g, uint8_t b, struct LedConfig* led) {
     uint32_t rgb = ((uint32_t)(r) << 8) |
                    ((uint32_t)(g) << 16) |
                    (uint32_t)(b);
-    pio_sm_put_blocking(pio, sm, rgb << 8u);
+    pio_sm_put_blocking(led->pio, led->sm, rgb << 8u);
 }
 
 // Function to set HSV color (hue: 0-359, saturation: 0-100, value: 0-100)
-void set_hsv(uint16_t hue, uint8_t sat, uint8_t val) {
+void set_hsv(uint16_t hue, uint8_t sat, uint8_t val, struct LedConfig* led) {
     hue = hue % 360;
     float s = sat / 100.0f;
     float v = val / 100.0f;
@@ -84,50 +86,48 @@ void set_hsv(uint16_t hue, uint8_t sat, uint8_t val) {
         r = c; g = 0; b = x;
     }
     
-    set_rgb((r + m) * 255, (g + m) * 255, (b + m) * 255);
+    set_rgb((r + m) * 255, (g + m) * 255, (b + m) * 255, led);
 }
 
-#ifdef ONBOARD_RGB
 // Initialize the WS2812 LED
-void ws2812_init() {
-    uint offset = pio_add_program(pio, &ws2812_program);
-    ws2812_program_init(pio, sm, offset, WS2812_PIN, 800000, IS_RGBW);
+void ws2812_init(struct LedConfig* led) {
+    led->sm_offset = pio_add_program(led->pio, &ws2812_program);
+    ws2812_program_init(led->pio, led->sm, led->sm_offset, WS2812_PIN, 800000, IS_RGBW);
 }
 
 // Fade effect
-void fade_effect() {
+void fade_effect(struct LedConfig* led) {
     for (int i = 0; i < 256; i++) {
-        set_rgb(i, 0, 0);  // Fade in red
+        set_rgb(i, 0, 0, led);  // Fade in red
         sleep_ms(5);
     }
     for (int i = 255; i >= 0; i--) {
-        set_rgb(i, 0, 0);  // Fade out red
+        set_rgb(i, 0, 0, led);  // Fade out red
         sleep_ms(5);
     }
 }
 
 // Breathing effect
-void breathing_effect(uint8_t r, uint8_t g, uint8_t b) {
+void breathing_effect(uint8_t r, uint8_t g, uint8_t b, struct LedConfig* led) {
     for (int i = 0; i < 100; i++) {
         float factor = (sin(i * 0.1) + 1) / 2.0f;
-        set_rgb(r * factor, g * factor, b * factor);
+        set_rgb(r * factor, g * factor, b * factor, led);
         sleep_ms(30);
     }
 }
 
 // Color wheel effect
-void color_wheel_effect() {
+void color_wheel_effect(struct LedConfig* led) {
     for (int i = 0; i < 360; i++) {
-        set_hsv(i, 100, 100);
+        set_hsv(i, 100, 100, led);
         sleep_ms(20);
     }
 }
-#endif
 
 //----- OLEDCH340 driver
 void init_oled() {
     i2c_init(I2C_PORT, 100 * 1000);
-    set_rgb(0, 127, 0);
+    set_rgb(0, 127, 0, &OnBoardLed);
 
     gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
@@ -157,6 +157,7 @@ void init_i2c_safe() {
     sleep_ms(100);
 }
 
+/*
 void i2c_scan() {
     printf("Scanning I2C bus...\n");
     
@@ -177,6 +178,7 @@ void i2c_scan() {
     }
     printf("\nScan complete.\n");
 }
+*/
 
 
 void setup_uart() {
@@ -190,125 +192,6 @@ void setup_uart() {
     uart_set_fifo_enabled(UART_ID, true);
 }
 
-
-
-
-#ifdef USING_PIO_COUNTER_PROGRAM
-
-volatile uint32_t pulse_count = 0;
-
-// Обработчик прерывания PIO для инкремента счетчика
-void pio_irq_handler() {
-    pio_interrupt_clear(pio, 0); // Очищаем прерывание 0
-    pulse_count++; // Увеличиваем счетчик
-}
-
-void counter_init(uint pin) {
-    // Загружаем PIO программу
-    offset = pio_add_program(pio, &counter_program);
-    
-    // Конфигурируем State Machine
-    pio_sm_config config = counter_program_get_default_config(offset);
-    
-    // Настраиваем GPIO пин
-    pio_gpio_init(pio, pin);
-    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
-    sm_config_set_in_pins(&config, pin);
-    sm_config_set_jmp_pin(&config, pin);
-    gpio_pull_up(pin);
-
-    
-    // Настраиваем сдвиговые регистры
-    // sm_config_set_in_shift(&config, false, false, 32);
-    // sm_config_set_out_shift(&config, false, false, 32);
-    sm_config_set_in_shift(&config, true, true, 32);
-    sm_config_set_out_shift(&config, true, true, 32);
-    
-    // Настраиваем FIFO
-    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
-    
-    // Настраиваем clock divider (максимальная скорость)
-    sm_config_set_clkdiv(&config, 1.0f);
-    
-    // Инициализируем State Machine
-    pio_sm_init(pio, sm, offset, &config);
-    
-    // Настраиваем начальное значение OSR
-    pio_sm_put(pio, sm, 0); // Начальное значение счетчика = 0
-    
-    // Запускаем State Machine
-    pio_sm_set_enabled(pio, sm, true);
-    
-    printf("PIO Counter initialized on pin %d\n", pin);
-}
-
-// Функция чтения счетчика из PIO
-uint32_t pio_counter_read2() {
-    // Останавливаем SM для чтения
-    pio_sm_set_enabled(pio, sm, false);
-    
-    // Сохраняем текущее состояние
-    pio_sm_exec(pio, sm, pio_encode_push(false, true));
-    
-    // Читаем значение
-    uint32_t count = pio_sm_get(pio, sm);
-    
-    // Перезапускаем SM
-    pio_sm_restart(pio, sm);
-    pio_sm_set_enabled(pio, sm, true);
-    
-    return count;
-}
-
-uint32_t pio_counter_read() {
-    static uint32_t last_value = 0;
-    
-    while (!pio_sm_is_rx_fifo_empty(pio, sm)) {
-        last_value = last_value + pio_sm_get(pio, sm);
-    }
-    return last_value;
-}
-
-uint32_t pio_counter_read3() {
-    static uint32_t last_value = 0;
-    if (!pio_sm_is_rx_fifo_empty(pio, sm)) {
-        last_value = pio_sm_get(pio, sm);
-    }
-    return last_value;
-}
-
-// Альтернативный метод с использованием прерываний PIO
-void counter_init_with_irq(uint pin) {
-    offset = pio_add_program(pio, &counter_program);
-    
-    pio_sm_config config = counter_program_get_default_config(offset);
-    
-    pio_gpio_init(pio, pin);
-    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
-    sm_config_set_in_pins(&config, pin);
-    
-    // Настройка сдвиговых регистров
-    sm_config_set_in_shift(&config, false, false, 32);
-    sm_config_set_out_shift(&config, false, false, 32);
-    
-    // Настройка clock divider
-    sm_config_set_clkdiv(&config, 1.0f);
-    
-    // Настройка прерываний
-    pio_set_irq0_source_enabled(pio, pis_interrupt0, true);
-    irq_set_exclusive_handler(PIO0_IRQ_0, pio_irq_handler);
-    irq_set_enabled(PIO0_IRQ_0, true);
-    
-    pio_sm_init(pio, sm, offset, &config);
-    
-    // Инициализируем счетчик
-    pio_sm_put(pio, sm, 0);
-    pio_sm_set_enabled(pio, sm, true);
-    
-    printf("PIO Counter with IRQ initialized on pin %d\n", pin);
-}
-
-#endif
 
 #define SIGNAL_PIN 8
 #define BTN_RIGHT_PIN 28
@@ -340,33 +223,24 @@ void dma_handler() {
     }
 }
 
-// Инициализация PIO для логического анализатора
-PIO setup_logic_analyzer_pio(uint sm, uint pin) {
-    PIO pio = pio0;
+PIO setup_logic_analyzer_pio(uint sm, uint pin, PIO pio)  {
+    //PIO pio = pio0;
     uint offset = pio_add_program(pio, &logic_analyzer_program);
     
-    // Настройка GPIO
     pio_gpio_init(pio, pin);
     pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
     
-    // Конфигурация state machine
     pio_sm_config c = logic_analyzer_program_get_default_config(offset);
     sm_config_set_in_pins(&c, pin);
     
-    // Расчет делителя частоты
-    // The PIO loop executes 3 instructions per sample: set, in, jmp
-    // Each sample executes `in pins,1` and the following `jmp` (two instructions per sample).
     const float cycles_per_sample = 2.03125f;
-    // float div = (float)clock_get_hz(clk_sys) / (SAMPLE_RATE * cycles_per_sample);
     float div = 1.0;
-    // Clamp divider to minimum 1.0 (can't make SM faster than system clock)
-    //if (div < 1.0f) div = 1.0f;
     sm_config_set_clkdiv(&c, div);
-    // record achieved sample rate for later analysis
+
     double achieved_sm_clock = (double)clock_get_hz(clk_sys) / (double)div;
     double achieved_sample_rate = achieved_sm_clock / (double)cycles_per_sample;
     printf("PIO clkdiv=%.6f, SM clock=%.0f Hz, sample_rate=%.2f Hz\n", div, achieved_sm_clock, achieved_sample_rate);
-    // store globally for analysis
+
     extern double g_actual_sample_rate;
     g_actual_sample_rate = achieved_sample_rate;
     
@@ -472,8 +346,7 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
         double estimated_freq = (transitions / 2.0) / capture_duration_s;
         printf("Estimated frequency: %.0f Hz\n", estimated_freq);
 
-            // printf("First 3 words (LSB first):\n");
-        char s[]={0};
+        char s[10]={0};
 
         sprintf(s, "%.1f KHz", estimated_freq / 1000.0);
         ssd1306_fill(disp);
@@ -492,19 +365,15 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
         printf("Average low pulse: %.2f samples\n", (float)pulse_widths[0] / (transitions / 2.0));
     }
     
-    // Вывод первых нескольких слов для визуализации
-    // printf("First 3 words (LSB first):\n");
-    // for (int i = 0; i < 3 && i < word_count; i++) {
-    printf("First all words (LSB first):\n");
+    printf("First 10 words (LSB first):\n");
     for (int i = 0; i < 10 && i < word_count; i++) {
         printf("\n  Word %d: 0x%08lx - ", i, buffer[i]);
-        for (int bit = 0; bit < 32; bit++) { // Показываем первые 16 бит
+        for (int bit = 0; bit < 32; bit++) { 
             printf("%d", (buffer[i] >> bit) & 1);
         }
-        printf("n");
+        //printf("");
     }
     
-    // Детектирование типичных сигналов
     if (transitions == 0) {
         printf("Signal: Constant %s\n", (high_count == total_samples) ? "HIGH" : "LOW");
     } else if (transitions == 2 && high_count == total_samples / 2) {
@@ -517,7 +386,7 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
     printf("====================\n");
 }
 
-// Быстрый анализ для обнаружения активности
+
 bool detect_signal_activity(const uint32_t *buffer, uint32_t word_count) {
     // Проверяем первые 64 слова на наличие переходов
     // uint32_t check_words = (word_count < 64) ? word_count : 64;
@@ -540,17 +409,10 @@ bool detect_signal_activity(const uint32_t *buffer, uint32_t word_count) {
 
 int main() {
     stdio_init_all();
-    // Configure system clock (kHz). Adjust value if you need a different frequency.
-    // Example: set to 133 MHz -> 133000 kHz
-    float freq = 200000;// khz
-    set_sys_clock_khz(freq, true);
-    //     printf("Warning: failed to set sys clock to %.0f MHz\n", freq / 1000.0 );
-    // } else {
-    //     printf("System clock set to %lu MHz\n", (unsigned long)(clock_get_hz(clk_sys) / 1000));
-    // }
+    set_sys_clock_hz(200000000, true);
     
-    //ws2812_init();
-    //set_rgb(127, 0, 0);
+    ws2812_init(&OnBoardLed);
+    set_rgb(127, 0, 0, &OnBoardLed);
 
     setup_uart();
     stdio_uart_init();
@@ -574,9 +436,11 @@ int main() {
     printf("Starting...");
     printf("System clock set to %lu MHz\n", (unsigned long)(clock_get_hz(clk_sys) / 1000000.));
 
-    PIO pio = setup_logic_analyzer_pio(0, SIGNAL_PIN);
+
+
+    PIO pio = setup_logic_analyzer_pio(0, SIGNAL_PIN, pio0);
     
-    // Инициализация DMA
+    // DMA init
     dma_channel = dma_claim_unused_channel(true);
     dma_channel_set_irq0_enabled(dma_channel, true);
     irq_set_exclusive_handler(DMA_IRQ_0, dma_handler);
@@ -596,81 +460,53 @@ int main() {
      while (true) {
         uint32_t current_time = time_us_32();
         
-        // Запускаем захват по истечении интервала
-        // if (current_time - last_capture_time >= CAPTURE_INTERVAL_MS * 1000) {
-            capture_count++;
-            last_capture_time = current_time;
-            
-            printf("[%lu] Starting capture... ", capture_count);
-            start_capture();
-            
-            // Ожидаем завершения захвата
-            uint32_t capture_start = time_us_32();
-            // Use blocking DMA wait as a robust fallback if IRQ isn't firing
-            dma_channel_wait_for_finish_blocking(dma_channel);
-            uint32_t capture_duration = time_us_32() - capture_start;
-            stop_capture();
+        capture_count++;
+        last_capture_time = current_time;
+        
+        printf("[%lu] Starting capture... ", capture_count);
+        start_capture();
+        
+        uint32_t capture_start = time_us_32();
+        dma_channel_wait_for_finish_blocking(dma_channel);
+        uint32_t capture_duration = time_us_32() - capture_start;
+        stop_capture();
 
-            if (!capture_complete) {
-                // If the IRQ handler didn't run for some reason, mark capture done
-                capture_complete = true;
-                words_captured = BUFFER_SIZE;
-                samples_captured = BUFFER_SIZE * 32;
-                // Acknowledge any pending IRQ to keep state consistent
-                dma_channel_acknowledge_irq0(dma_channel);
+        if (!capture_complete) {
+            capture_complete = true;
+            words_captured = BUFFER_SIZE;
+            samples_captured = BUFFER_SIZE * 32;
+            dma_channel_acknowledge_irq0(dma_channel);
+        }
+        
+        printf("done in %lu us, words_captured %lu\n", capture_duration, words_captured);
+        bool activity = detect_signal_activity(sample_buffer, words_captured);
+        
+        if (activity) {
+            signal_detected = true;
+            inactive_captures = 0;
+            printf("ACTIVE - ");
+            analyze_signal(sample_buffer, words_captured, capture_count, capture_duration, &disp);
+            set_rgb(0, 0, 127, &OnBoardLed);
+
+        } else {
+            inactive_captures++;
+            printf("NO SIGNAL");
+            set_rgb(0, 127, 0, &OnBoardLed);
+            
+            if (inactive_captures % 10 == 0) {
+                printf(" (%lu consecutive no-signal captures)\n", inactive_captures);
             }
             
-            printf("done in %lu us, words_captured %lu\n", capture_duration, words_captured);
-            
-            // Анализируем сигнал
-            bool activity = detect_signal_activity(sample_buffer, words_captured);
-            
-            if (activity) {
-                signal_detected = true;
-                inactive_captures = 0;
-                printf("ACTIVE - ");
-                // Детальный анализ для активных сигналов
-                analyze_signal(sample_buffer, words_captured, capture_count, capture_duration, &disp);
-            } else {
-                inactive_captures++;
-                printf("NO SIGNAL");
-                
-                // Периодически выводим статистику даже для отсутствия сигнала
-                if (inactive_captures % 10 == 0) {
-                    printf(" (%lu consecutive no-signal captures)", inactive_captures);
-                }
-                printf("\n");
-                
-                // Специальный вывод при первом обнаружении отсутствия сигнала после активности
-                if (signal_detected && inactive_captures == 1) {
-                    printf(">>> Signal lost after %lu active captures <<<\n", capture_count - inactive_captures);
-                    signal_detected = false;
-                }
+            if (signal_detected && inactive_captures == 1) {
+                printf(">>> Signal lost after %lu active captures <<<\n", capture_count - inactive_captures);
+                signal_detected = false;
             }
-            
-            // Очистка буфера для следующего захвата
-            memset((void*)sample_buffer, 0, BUFFER_SIZE * sizeof(uint32_t));
-            
-            // Небольшая пауза перед следующим захватом
-            sleep_ms(100);
-        // }
+        }
         
-        // Проверка на прерывание по пользовательскому вводу (опционально)
-        // if (stdio_usb_connected()) {
-        //     int c = getchar_timeout_us(0);
-        //     if (c == 'q' || c == 'Q') {
-        //         printf("\n\nStopping capture...\n");
-        //         stop_capture();
-        //         break;
-        //     } else if (c == 's' || c == 'S') {
-        //         printf("\n\nForce signal analysis:\n");
-        //         analyze_signal(sample_buffer, words_captured, capture_count);
-        //     }
-        // }
+        memset((void*)sample_buffer, 0, BUFFER_SIZE * sizeof(uint32_t));
         
-        // sleep_ms(1);
+        sleep_ms(100);
     }
     
     return 0;
-
 }

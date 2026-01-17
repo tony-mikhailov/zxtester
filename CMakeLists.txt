@@ -24,6 +24,7 @@ pico_enable_stdio_uart(${TARGET} 1)
 #pico_generate_pio_header(${TARGET} ${CMAKE_CURRENT_LIST_DIR}/counter.pio)
 #pico_generate_pio_header(${TARGET} ${CMAKE_CURRENT_LIST_DIR}/dutycycle.pio)
 pico_generate_pio_header(${TARGET} ${CMAKE_CURRENT_LIST_DIR}/logic_analyzer.pio)
+pico_generate_pio_header(${TARGET} ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
 
 #define PICO_CLOCK_ADJUST_PERI_CLOCK_WITH_SYS_CLOCK 1
 target_compile_definitions(${TARGET} PRIVATE PICO_CLOCK_ADJUST_PERI_CLOCK_WITH_SYS_CLOCK=1)
