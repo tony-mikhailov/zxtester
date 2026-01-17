@@ -12,7 +12,8 @@
 
 #include "ws2812.h"
 #include "ssd1306.h"
-#include "logic_analyzer.pio.h"
+#include "sampler.pio.h"
+#include "sampler.h"
 
 // UART
 #define UART_ID uart0
@@ -47,15 +48,17 @@ ssd1306_t disp = {
     .SDA = OLED_I2C_SDA
 };
 
-// Logic Analyzer 
-#define SIGNAL_PIN 8
 #define BTN_RIGHT_PIN 28
 #define BTN_LEFT_PIN 29
-#define BUFFER_SIZE 32768
-PIO la_pio = pio0;
-int la_dma_channel;
-uint32_t sample_buffer[BUFFER_SIZE];
-volatile bool capture_complete = false;
+
+
+// Logic Analyzer 
+#define SIGNAL_PIN 8
+
+sampler_t sampler = {
+    .pio = pio0,
+    .pin = SIGNAL_PIN
+};
 
 void setup_uart() {
     uart_init(UART_ID, BAUD_RATE);
@@ -69,79 +72,7 @@ void setup_uart() {
 }
 
 
-void la_dma_handler() {
-    if (dma_channel_get_irq0_status(la_dma_channel)) {
-        dma_channel_acknowledge_irq0(la_dma_channel);
-        capture_complete = true;
-        dma_channel_abort(la_dma_channel);
-    }
-}
 
-// returns real sampling frequency 
-double setup_logic_analyzer(uint pin)  {
-    uint sm = 0;
-    uint offset = pio_add_program(la_pio, &logic_analyzer_program);
-    
-    pio_gpio_init(la_pio, pin);
-    pio_sm_set_consecutive_pindirs(la_pio, sm, pin, 1, false);
-    
-    pio_sm_config c = logic_analyzer_program_get_default_config(offset);
-    sm_config_set_in_pins(&c, pin);
-    
-    const float cycles_per_sample = 2.03125f; // !
-    float div = 1.0; // sampling as fast as we can 
-    sm_config_set_clkdiv(&c, div);
-
-    double achieved_sm_clock = (double)clock_get_hz(clk_sys) / (double)div;
-    double achieved_sample_rate = achieved_sm_clock / (double)cycles_per_sample;
-    printf("PIO clkdiv=%.6f, SM clock=%.0f Hz, sample_rate=%.2f Hz\n", div, achieved_sm_clock, achieved_sample_rate);
-    
-    // Shift register
-    sm_config_set_in_shift(&c, true, true, 32);
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-    
-    pio_sm_init(la_pio, sm, offset, &c);
-
-    // DMA init
-    la_dma_channel = dma_claim_unused_channel(true);
-    dma_channel_set_irq0_enabled(la_dma_channel, true);
-    irq_set_exclusive_handler(DMA_IRQ_0, la_dma_handler);
-    irq_set_enabled(DMA_IRQ_0, true);
-
-    return achieved_sample_rate;
-}
-
-
-void start_capture() {
-    capture_complete = false;
-    
-    dma_channel_config config = dma_channel_get_default_config(la_dma_channel);
-    channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
-    channel_config_set_read_increment(&config, false);
-    channel_config_set_write_increment(&config, true);
-    channel_config_set_dreq(&config, pio_get_dreq(pio0, 0, false));
-    
-    dma_channel_configure(
-        la_dma_channel,
-        &config,
-        sample_buffer,
-        &pio0->rxf[0],
-        BUFFER_SIZE,
-        true
-    );
-    
-    // run PIO state machine
-    pio_sm_clear_fifos(pio0, 0);
-    pio_sm_restart(pio0, 0);
-    pio_sm_set_enabled(pio0, 0, true);
-}
-
-void stop_capture() {
-    pio_sm_set_enabled(pio0, 0, false);
-    if (!capture_complete) {
-        dma_channel_abort(la_dma_channel);
-    }
-}
 
 // Анализ сигнала - подсчет переходов и статистики
 void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t capture_id, uint32_t capture_duration_us, double sample_rate, ssd1306_t *disp) {
@@ -275,7 +206,7 @@ int main() {
     ssd1306_fill(&disp, 255);
     ssd1306_show(&disp);
 
-    const double sample_rate = setup_logic_analyzer(SIGNAL_PIN);
+    const double sample_rate = setup_sampler(&sampler);
     
     printf("Configuration:\n");
     printf("  Sample pin: GPIO%d\n", SIGNAL_PIN);
@@ -292,26 +223,23 @@ int main() {
         capture_count++;
         
         printf("[%lu] Starting capture... ", capture_count);
-        start_capture();
+        start_capture(&sampler);
         
         uint32_t capture_start = time_us_32();
-        dma_channel_wait_for_finish_blocking(la_dma_channel);
+        wait_capture(&sampler);
         uint32_t capture_duration = time_us_32() - capture_start;
-        stop_capture();
 
-        if (!capture_complete) {
-            capture_complete = true;
-            dma_channel_acknowledge_irq0(la_dma_channel);
-        }
+        stop_capture(&sampler);
+
         
         printf("done in %lu us, words_captured %lu\n", capture_duration, BUFFER_SIZE);
-        bool activity = detect_signal_activity(sample_buffer, BUFFER_SIZE);
+        bool activity = detect_signal_activity(sampler.sample_buffer, BUFFER_SIZE);
         
         if (activity) {
             signal_detected = true;
             inactive_captures = 0;
             printf("ACTIVE - ");
-            analyze_signal(sample_buffer, BUFFER_SIZE, capture_count, capture_duration, sample_rate, &disp);
+            analyze_signal(sampler.sample_buffer, BUFFER_SIZE, capture_count, capture_duration, sample_rate, &disp);
             set_rgb(0, 0, 127, &ws2812);
 
         } else {
@@ -331,7 +259,8 @@ int main() {
             }
         }
         
-        memset((void*)sample_buffer, 0, BUFFER_SIZE * sizeof(uint32_t));
+        //todo: move to sampler.c
+        memset((void*)sampler.sample_buffer, 0, BUFFER_SIZE * sizeof(uint32_t));
         
         //sleep_ms(100);
     }
