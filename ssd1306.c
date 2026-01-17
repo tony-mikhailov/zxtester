@@ -7,11 +7,27 @@ void ssd1306_write_command(ssd1306_t *disp, uint8_t cmd) {
     i2c_write_blocking(disp->i2c_port, disp->address, buf, 2, false);
 }
 
-void ssd1306_init(ssd1306_t *disp, uint8_t width, uint8_t height, uint8_t address, i2c_inst_t *i2c_port) {
-    disp->i2c_port = i2c_port;
-    disp->address = address;
-    disp->width = width;
-    disp->height = height;
+void ssd1306_init(ssd1306_t *disp) {
+
+    gpio_init(disp->SDA);
+    gpio_init(disp->SCL);
+    gpio_set_dir(disp->SDA, GPIO_IN);
+    gpio_set_dir(disp->SCL, GPIO_IN);
+    
+    i2c_init(disp->i2c_port, 400000);
+    
+    gpio_set_function(disp->SDA, GPIO_FUNC_I2C);
+    gpio_set_function(disp->SCL, GPIO_FUNC_I2C);
+    
+    gpio_pull_up(disp->SDA);
+    gpio_pull_up(disp->SCL);
+    
+    sleep_ms(100);
+    
+    // disp->i2c_port = i2c_port;
+    // disp->address = address;
+    // disp->width = width;
+    // disp->height = height;
 //    disp->external_vcc = false;
     
     // Initialize sequence
@@ -28,7 +44,7 @@ void ssd1306_init(ssd1306_t *disp, uint8_t width, uint8_t height, uint8_t addres
     ssd1306_write_command(disp, 0xA1); // Segment remap
     ssd1306_write_command(disp, 0xA6); // Normal display
     ssd1306_write_command(disp, 0xA8); // Multiplex ratio
-    ssd1306_write_command(disp, height - 1);
+    ssd1306_write_command(disp, disp->height - 1);
     ssd1306_write_command(disp, 0xD3); // Display offset
     ssd1306_write_command(disp, 0x00);
     ssd1306_write_command(disp, 0xD5); // Clock divide

@@ -6,6 +6,8 @@
 
 typedef struct {
     i2c_inst_t *i2c_port;
+    uint SCL;
+    uint SDA;
     uint8_t address;
     uint8_t width;
     uint8_t height;
@@ -13,7 +15,7 @@ typedef struct {
     uint8_t buffer[1024]; // 128x64/8
 } ssd1306_t;
 
-void ssd1306_init(ssd1306_t *disp, uint8_t width, uint8_t height, uint8_t address, i2c_inst_t *i2c_port);
+void ssd1306_init(ssd1306_t *disp);
 void ssd1306_clear(ssd1306_t *disp);
 void ssd1306_fill(ssd1306_t *disp, uint8_t data);
 void ssd1306_show(ssd1306_t *disp);

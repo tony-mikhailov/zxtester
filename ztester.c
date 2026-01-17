@@ -23,13 +23,8 @@
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
 
-// OLED Configuration
-#define OLED_I2C_PORT i2c1
-#define OLED_I2C_SDA 6
-#define OLED_I2C_SCL 7
 
 // OnBoard RGB Led
-
 #define WS2812_PIN 16
 
 ws2812_t ws2812 = {
@@ -38,6 +33,21 @@ ws2812_t ws2812 = {
     .offset = 0,
     .pin = WS2812_PIN,
     .rgbw = false
+};
+
+// OLED Configuration
+#define OLED_I2C_PORT i2c1
+#define OLED_I2C_SDA 6
+#define OLED_I2C_SCL 7
+
+ssd1306_t disp = {
+    .i2c_port = OLED_I2C_PORT,
+    .width = 128,
+    .height = 64,
+    .address = 0x3C,
+    .external_vcc = false,
+    .SCL = OLED_I2C_SCL,
+    .SDA = OLED_I2C_SDA
 };
 
 // Logic Analyzer 
@@ -50,27 +60,7 @@ PIO la_pio = pio0;
 int la_dma_channel;
 
 uint32_t sample_buffer[BUFFER_SIZE];
-
 volatile bool capture_complete = false;
-volatile uint32_t capture_count = 0;
-
-//----- OLEDCH340 driver
-void init_oled() {
-    gpio_init(OLED_I2C_SDA);
-    gpio_init(OLED_I2C_SCL);
-    gpio_set_dir(OLED_I2C_SDA, GPIO_IN);
-    gpio_set_dir(OLED_I2C_SCL, GPIO_IN);
-    
-    i2c_init(OLED_I2C_PORT, 400000);
-    
-    gpio_set_function(OLED_I2C_SDA, GPIO_FUNC_I2C);
-    gpio_set_function(OLED_I2C_SCL, GPIO_FUNC_I2C);
-    
-    gpio_pull_up(OLED_I2C_SDA);
-    gpio_pull_up(OLED_I2C_SCL);
-    
-    sleep_ms(100);
-}
 
 void setup_uart() {
     uart_init(UART_ID, BAUD_RATE);
@@ -286,11 +276,7 @@ int main() {
     printf("Starting...");
     printf("System clock set to %lu MHz\n", (unsigned long)(clock_get_hz(clk_sys) / 1000000.));
 
-
-    init_oled();
-    ssd1306_t disp;
-    disp.external_vcc = false;
-    ssd1306_init(&disp, 128, 64, 0x3C, OLED_I2C_PORT);
+    ssd1306_init(&disp);
     ssd1306_fill(&disp, 255);
     ssd1306_show(&disp);
 
@@ -306,6 +292,7 @@ int main() {
     uint32_t inactive_captures = 0;
 
     sleep_ms(200);
+    uint32_t capture_count = 0;
     while (true) {
         
         capture_count++;
@@ -320,8 +307,6 @@ int main() {
 
         if (!capture_complete) {
             capture_complete = true;
-            // words_captured = BUFFER_SIZE;
-            // samples_captured = BUFFER_SIZE * 32;
             dma_channel_acknowledge_irq0(la_dma_channel);
         }
         
