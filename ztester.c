@@ -92,7 +92,7 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
     }
 
     if (res->pulse_widths[0] > 0 && res->pulse_widths[1] > 0 && res->transitions > 1) {
-        printf("Average high pulse: %.2f samples\n", res->avg_high_pulse);
+        printf("Average high pulse: %.2f samples\n", res->pulse_widths);
         printf("Average low pulse: %.2f samples\n", res->avg_low_pulse);
     }
 
@@ -100,7 +100,21 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
 
     // Reduced 32-bit pattern (remove spikes) and display
     uint8_t reduced[32] = {0};
-    reduce_buffer_to_32(buffer, res->word_count, reduced);
+
+
+    reduce_buffer_to_32(buffer, res->word_count, reduced, res->high_count / (res->transitions * 2));
+
+    printf("reduced:\n");
+    for (int i = 0; i < 32; ++i) {
+        if (reduced[i] == 0) {
+            printf("0");
+        } else {
+            printf("1");
+        }
+    }
+    printf("\n");
+
+
     char bits[40] = {0};
     for (uint32_t i = 0; i < 32; i++) {
         bits[i] = reduced[i] ? '-' : '_';
@@ -197,7 +211,7 @@ int main() {
                 signal_detected = false;
             }
         }
-        //sleep_ms(100);
+        // sleep_ms(3000);
     }
     
     return 0;

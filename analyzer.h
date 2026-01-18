@@ -37,6 +37,6 @@ bool detect_signal_activity(const uint32_t *buffer, uint32_t word_count);
 // Calculate duty cycle (percentage of HIGH samples) from the raw buffer
 float calculate_duty_cycle(const uint32_t *buffer, uint32_t word_count);
 
-void reduce_buffer_to_32(const uint32_t *buffer, uint32_t word_count, uint8_t out[32]);
+void reduce_buffer_to_32(const uint32_t *buffer, uint32_t word_count, uint8_t out[32], uint32_t avg_fullpulse_width);
 
 #endif // ANALYZER_H

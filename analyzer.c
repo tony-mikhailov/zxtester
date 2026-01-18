@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 analysis_result_t analyze_signal_buffer(const uint32_t *buffer, uint32_t word_count, double sample_rate) {
     analysis_result_t res = {0};
@@ -121,11 +122,30 @@ static inline uint8_t get_sample_bit(const uint32_t *buffer, uint32_t sample_ind
     return (buffer[word_idx] >> bit) & 1u;
 }
 
-void reduce_buffer_to_32(const uint32_t *buffer, uint32_t word_count, uint8_t out[32]) {
-    uint8_t first = get_sample_bit(buffer, 0);
-
+void reduce_buffer_to_32(const uint32_t *buffer, uint32_t word_count, uint8_t out[32], uint32_t avg_fullpulse_width) {
+    uint8_t current_state;
+    uint8_t current_pulse_length;
+    uint8_t last_state = get_sample_bit(buffer, 0);
+    printf("**************************** %d %d\n", avg_fullpulse_width, word_count);
+    uint8_t cursor = 0;  
+    bool force_transition = false;
     for (uint32_t i = 1; i < word_count * 32; i++) {
-        uint8_t cur = get_sample_bit(buffer, i);
-    }
+        current_state = get_sample_bit(buffer, i);
 
+        if (force_transition || current_state != last_state) {
+            printf("[%d] TRANSITION!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! %d %d %d %d\n", i, current_state, last_state, current_pulse_length, avg_fullpulse_width);
+            if (current_pulse_length > avg_fullpulse_width / 2 ) {
+                printf("push at %d data %d\n", cursor, last_state);
+
+                out[cursor++] = last_state;             
+                if (cursor == 32)
+                    return;
+            } 
+
+            current_pulse_length = 1;
+            last_state = current_state;
+        } else {
+            current_pulse_length++;
+        }
+    }
 }
