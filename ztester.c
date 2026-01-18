@@ -163,7 +163,7 @@ analysis_result_t analyze_signal_buffer(const uint32_t *buffer, uint32_t word_co
 }
 
 // Print analysis_result_t and update OLED as before
-void print_analysis_result(const analysis_result_t *res, uint32_t capture_id) {
+void print_analysis_result(const analysis_result_t * res, uint32_t capture_id) {
     printf("\n=== Capture #%lu ===\n", capture_id);
     printf("Total samples: %lu\n", (unsigned long)res->total_samples);
     printf("High samples: %lu (%.1f%%)\n", (unsigned long)res->high_count,
@@ -196,6 +196,7 @@ void print_analysis_result(const analysis_result_t *res, uint32_t capture_id) {
             printf("%d", (res->first_words[i] >> bit) & 1);
         }
     }
+    printf("\n");
 
     if (res->signal_type == SIGNAL_TYPE_CONSTANT) {
         printf("Signal: Constant %s\n", (res->high_count == res->total_samples) ? "HIGH" : "LOW");
