@@ -12,6 +12,7 @@ typedef enum {
     SIGNAL_TYPE_PERIODIC
 } signal_type_t;
 
+// signal analyzer result structure
 typedef struct {
     uint32_t high_count;
     uint32_t transitions;

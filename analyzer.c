@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Implementation of analyze_signal_buffer moved from ztester.c
 analysis_result_t analyze_signal_buffer(const uint32_t *buffer, uint32_t word_count, double sample_rate) {
     analysis_result_t res = {0};
     uint32_t high_count = 0;
@@ -15,7 +14,6 @@ analysis_result_t analyze_signal_buffer(const uint32_t *buffer, uint32_t word_co
     for (uint32_t i = 0; i < word_count; i++) {
         uint32_t word = buffer[i];
 
-        // store first words for later printing
         if (i < 10) res.first_words[i] = word;
 
         for (int bit = 0; bit < 32; bit++) {
@@ -39,7 +37,6 @@ analysis_result_t analyze_signal_buffer(const uint32_t *buffer, uint32_t word_co
 
     uint32_t total_samples = word_count * 32;
 
-    // fill result
     res.high_count = high_count;
     res.transitions = transitions;
     res.pulse_widths[0] = pulse_widths[0];
@@ -72,7 +69,6 @@ analysis_result_t analyze_signal_buffer(const uint32_t *buffer, uint32_t word_co
     return res;
 }
 
-// Detect whether buffer contains any transitions (activity)
 bool detect_signal_activity(const uint32_t *buffer, uint32_t word_count) {
     uint32_t check_words = word_count;
     uint8_t last_state = (buffer[0] & 1);
