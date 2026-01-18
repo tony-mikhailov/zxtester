@@ -54,10 +54,14 @@ ssd1306_t disp = {
 
 // Logic Analyzer 
 #define SIGNAL_PIN 8
+#define BUFFER_SIZE 32768
 
+uint32_t sampler_buffer[BUFFER_SIZE];
 sampler_t sampler = {
     .pio = pio0,
-    .pin = SIGNAL_PIN
+    .pin = SIGNAL_PIN,
+    .sample_buffer = sampler_buffer,
+    .buffer_size = BUFFER_SIZE
 };
 
 void setup_uart() {
@@ -70,9 +74,6 @@ void setup_uart() {
     
     uart_set_fifo_enabled(UART_ID, true);
 }
-
-
-
 
 // Анализ сигнала - подсчет переходов и статистики
 void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t capture_id, uint32_t capture_duration_us, double sample_rate, ssd1306_t *disp) {
@@ -259,8 +260,6 @@ int main() {
             }
         }
         
-        //todo: move to sampler.c
-        memset((void*)sampler.sample_buffer, 0, BUFFER_SIZE * sizeof(uint32_t));
         
         //sleep_ms(100);
     }

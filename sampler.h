@@ -7,12 +7,12 @@
 #include <hardware/dma.h>
 
 #define SIGNAL_PIN 8
-#define BUFFER_SIZE 32768
 
 typedef struct {
     uint pin; // signal pin
     PIO pio;
-    uint32_t sample_buffer[BUFFER_SIZE];
+    uint32_t *sample_buffer;
+    const uint16_t buffer_size;
 } sampler_t;
 
 

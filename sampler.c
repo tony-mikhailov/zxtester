@@ -2,6 +2,7 @@
 
 #include "sampler.pio.h"
 #include <stdio.h>
+#include <string.h>
 
 int dma_channel;
 volatile bool capture_complete = false;
@@ -50,6 +51,7 @@ double setup_sampler(sampler_t *sampler)  {
 
 void start_capture(sampler_t *sampler) {
     capture_complete = false;
+    memset((void*)sampler->sample_buffer, 0, sampler->buffer_size * sizeof(uint32_t));
     
     dma_channel_config config = dma_channel_get_default_config(dma_channel);
     channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
@@ -62,7 +64,7 @@ void start_capture(sampler_t *sampler) {
         &config,
         sampler->sample_buffer,
         &sampler->pio->rxf[0],
-        BUFFER_SIZE,
+        sampler->buffer_size,
         true
     );
     
