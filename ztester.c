@@ -70,26 +70,48 @@ void setup_uart(uart_inst_t *uart, uint baudrate, uint tx, uint rx, uint databit
     uart_set_fifo_enabled(uart, true);
 }
 
-// Анализ сигнала - подсчет переходов и статистики
-void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t capture_id, double sample_rate) {
+// signal type enumeration
+typedef enum {
+    SIGNAL_TYPE_UNKNOWN = 0,
+    SIGNAL_TYPE_CONSTANT,
+    SIGNAL_TYPE_PERFECT_SQUARE,
+    SIGNAL_TYPE_PERIODIC
+} signal_type_t;
+
+typedef struct {
+    uint32_t high_count;
+    uint32_t transitions;
+    uint32_t pulse_widths[2]; // [0] low, [1] high (sum of lengths)
+    uint32_t total_samples;
+    double capture_duration_s;
+    double estimated_freq;
+    float avg_high_pulse;
+    float avg_low_pulse;
+    uint32_t first_words[10];
+    uint32_t word_count;
+    signal_type_t signal_type;
+} analysis_result_t;
+
+// Populate analysis_result_t from raw buffer
+void analyze_buffer(const uint32_t *buffer, uint32_t word_count, analysis_result_t *res, double sample_rate) {
     uint32_t high_count = 0;
     uint32_t transitions = 0;
-    uint32_t pulse_widths[2] = {0, 0}; // [0] - low pulses, [1] - high pulses
+    uint32_t pulse_widths[2] = {0, 0};
     uint32_t current_pulse_length = 0;
     uint8_t last_state = (buffer[0] & 1);
     uint8_t current_state;
-    
-    // Анализируем все захваченные данные
+
     for (uint32_t i = 0; i < word_count; i++) {
         uint32_t word = buffer[i];
-        
+
+        // store first words for later printing
+        if (i < 10) res->first_words[i] = word;
+
         for (int bit = 0; bit < 32; bit++) {
             current_state = (word >> bit) & 1;
-            
-            if (current_state) {
-                high_count++;
-            }
-            
+
+            if (current_state) high_count++;
+
             if (current_state != last_state) {
                 transitions++;
                 pulse_widths[last_state] += current_pulse_length;
@@ -100,57 +122,86 @@ void analyze_signal(const uint32_t *buffer, uint32_t word_count, uint32_t captur
             }
         }
     }
-    
-    // Добавляем последний импульс
+
+    // add last pulse
     pulse_widths[last_state] += current_pulse_length;
-    
+
     uint32_t total_samples = word_count * 32;
-    
-    // Вывод результатов анализа
-    printf("\n=== Capture #%lu ===\n", capture_id);
-    printf("Total samples: %lu\n", total_samples);
-    printf("High samples: %lu (%.1f%%)\n", high_count, (high_count * 100.0) / total_samples);
-    printf("Low samples: %lu (%.1f%%)\n", total_samples - high_count, 
-           ((total_samples - high_count) * 100.0) / total_samples);
-    printf("Transitions: %lu\n", transitions);
-    
+
+    // fill result
+    res->high_count = high_count;
+    res->transitions = transitions;
+    res->pulse_widths[0] = pulse_widths[0];
+    res->pulse_widths[1] = pulse_widths[1];
+    res->total_samples = total_samples;
+    res->word_count = word_count;
+
     if (transitions > 1) {
-        double capture_duration_s = (double)total_samples / sample_rate;
-        double estimated_freq = (transitions / 2.0) / capture_duration_s;
-        printf("Estimated frequency: %.0f Hz\n", estimated_freq);
+        res->capture_duration_s = (double)total_samples / sample_rate;
+        res->estimated_freq = (transitions / 2.0) / res->capture_duration_s;
+    } else {
+        res->capture_duration_s = 0.0;
+        res->estimated_freq = 0.0;
+    }
 
-        char s[10]={0};
+    if (transitions > 1) {
+        double denom = (transitions / 2.0);
+        res->avg_high_pulse = (float)res->pulse_widths[1] / denom;
+        res->avg_low_pulse = (float)res->pulse_widths[0] / denom;
+    } else {
+        res->avg_high_pulse = 0.0f;
+        res->avg_low_pulse = 0.0f;
+    }
 
-        sprintf(s, "%.1f KHz", estimated_freq / 1000.0);
+    if (transitions == 0) res->signal_type = SIGNAL_TYPE_CONSTANT;
+    else if (transitions == 2 && high_count == total_samples / 2) res->signal_type = SIGNAL_TYPE_PERFECT_SQUARE;
+    else if (transitions >= 4) res->signal_type = SIGNAL_TYPE_PERIODIC;
+    else res->signal_type = SIGNAL_TYPE_UNKNOWN;
+}
+
+// Print analysis_result_t and update OLED as before
+void print_analysis_result(const analysis_result_t *res, uint32_t capture_id) {
+    printf("\n=== Capture #%lu ===\n", capture_id);
+    printf("Total samples: %lu\n", (unsigned long)res->total_samples);
+    printf("High samples: %lu (%.1f%%)\n", (unsigned long)res->high_count,
+           (res->high_count * 100.0) / res->total_samples);
+    printf("Low samples: %lu (%.1f%%)\n", (unsigned long)(res->total_samples - res->high_count),
+           ((res->total_samples - res->high_count) * 100.0) / res->total_samples);
+    printf("Transitions: %lu\n", (unsigned long)res->transitions);
+
+    if (res->transitions > 1) {
+        printf("Estimated frequency: %.0f Hz\n", res->estimated_freq);
+
+        char s[16] = {0};
+        sprintf(s, "%.1f KHz", res->estimated_freq / 1000.0);
         ssd1306_fill(&oled, 0);
         ssd1306_draw_string(&oled, 1, 1, 2, s);
         ssd1306_show(&oled);
 
-        printf("(used computed capture duration %.3f ms from sample_rate %.2f Hz)\n", capture_duration_s*1000.0, sample_rate);
+        printf("(used computed capture duration %.3f ms from sample_rate %.2f Hz)\n", res->capture_duration_s * 1000.0, (double)(res->total_samples) / res->capture_duration_s);
     }
-    
-    if (pulse_widths[0] > 0 && pulse_widths[1] > 0) {
-        printf("Average high pulse: %.2f samples\n", (float)pulse_widths[1] / (transitions / 2.0));
-        printf("Average low pulse: %.2f samples\n", (float)pulse_widths[0] / (transitions / 2.0));
+
+    if (res->pulse_widths[0] > 0 && res->pulse_widths[1] > 0 && res->transitions > 1) {
+        printf("Average high pulse: %.2f samples\n", res->avg_high_pulse);
+        printf("Average low pulse: %.2f samples\n", res->avg_low_pulse);
     }
-    
+
     printf("First 10 words (LSB first):\n");
-    for (int i = 0; i < 10 && i < word_count; i++) {
-        printf("\n  Word %d: 0x%08lx - ", i, buffer[i]);
-        for (int bit = 0; bit < 32; bit++) { 
-            printf("%d", (buffer[i] >> bit) & 1);
+    for (int i = 0; i < 10 && i < (int)res->word_count; i++) {
+        printf("\n  Word %d: 0x%08lx - ", i, (unsigned long)res->first_words[i]);
+        for (int bit = 0; bit < 32; bit++) {
+            printf("%d", (res->first_words[i] >> bit) & 1);
         }
-        //printf("");
     }
-    
-    if (transitions == 0) {
-        printf("Signal: Constant %s\n", (high_count == total_samples) ? "HIGH" : "LOW");
-    } else if (transitions == 2 && high_count == total_samples / 2) {
+
+    if (res->signal_type == SIGNAL_TYPE_CONSTANT) {
+        printf("Signal: Constant %s\n", (res->high_count == res->total_samples) ? "HIGH" : "LOW");
+    } else if (res->signal_type == SIGNAL_TYPE_PERFECT_SQUARE) {
         printf("Signal: Perfect square wave\n");
-    } else if (transitions >= 4) {
+    } else if (res->signal_type == SIGNAL_TYPE_PERIODIC) {
         printf("Signal: Periodic waveform\n");
     }
-    
+
     printf("====================\n");
 }
 
@@ -219,8 +270,10 @@ int main() {
         if (activity) {
             signal_detected = true;
             inactive_captures = 0;
-            printf("ACTIVE - ");
-            analyze_signal(sampler.sample_buffer, BUFFER_SIZE, capture_count, sample_rate);
+            printf("ACTIVE");
+            analysis_result_t analysis = {0};
+            analyze_buffer(sampler.sample_buffer, BUFFER_SIZE, &analysis, sample_rate);
+            print_analysis_result(&analysis, capture_count);
             set_rgb(0, 0, 127, &ws2812);
 
         } else {
