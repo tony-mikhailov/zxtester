@@ -29,13 +29,13 @@ ws2812_t ws2812 = {
 
 // OLED Configuration
 ssd1306_t oled = {
-    .i2c_port = i2c1,
+    .i2c_port = i2c0,
     .width = 128,
     .height = 64,
     .address = 0x3C,
     .external_vcc = false,
-    .SDA = 6,
-    .SCL = 7,
+    .SDA = 4,
+    .SCL = 5,
 };
 
 #define BTN_RIGHT_PIN 28
@@ -85,7 +85,7 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
         char d[16] = {0};
         sprintf(s, "%.1f KHz", res->estimated_freq / 1000.0);
         sprintf(d, "Duty %.1f%%", res->duty_cycle);
-        ssd1306_draw_string(&oled, 1, 1, 3, s);
+        ssd1306_draw_string(&oled, 1, 1, 2, s);
         ssd1306_draw_string(&oled, 1, 24, 2, d);
 
         printf("(used computed capture duration %.3f ms from sample_rate %.2f Hz)\n", res->capture_duration_s * 1000.0, (double)(res->total_samples) / res->capture_duration_s);

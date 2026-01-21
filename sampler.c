@@ -20,6 +20,8 @@ double setup_sampler(sampler_t *sampler)  {
     uint sm = 0;
     uint offset = pio_add_program(sampler->pio, &sampler_program);
     
+    gpio_set_function(sampler->pin, GPIO_FUNC_NULL);
+
     pio_gpio_init(sampler->pio, sampler->pin);
     pio_sm_set_consecutive_pindirs(sampler->pio, sm, sampler->pin, 1, false);
     

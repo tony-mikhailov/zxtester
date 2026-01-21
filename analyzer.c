@@ -126,16 +126,16 @@ void reduce_buffer_to_32(const uint32_t *buffer, uint32_t word_count, uint8_t ou
     uint8_t current_state;
     uint8_t current_pulse_length;
     uint8_t last_state = get_sample_bit(buffer, 0);
-    printf("**************************** %d %d\n", avg_fullpulse_width, word_count);
+    // printf("**************************** %d %d\n", avg_fullpulse_width, word_count);
     uint8_t cursor = 0;  
     bool force_transition = false;
     for (uint32_t i = 1; i < word_count * 32; i++) {
         current_state = get_sample_bit(buffer, i);
 
         if (force_transition || current_state != last_state) {
-            printf("[%d] TRANSITION!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! %d %d %d %d\n", i, current_state, last_state, current_pulse_length, avg_fullpulse_width);
+            // printf("[%d] TRANSITION!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! %d %d %d %d\n", i, current_state, last_state, current_pulse_length, avg_fullpulse_width);
             if (current_pulse_length > avg_fullpulse_width / 2 ) {
-                printf("push at %d data %d\n", cursor, last_state);
+                // printf("push at %d data %d\n", cursor, last_state);
 
                 out[cursor++] = last_state;             
                 if (cursor == 32)
