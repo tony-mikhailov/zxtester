@@ -85,8 +85,8 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
         char d[16] = {0};
         sprintf(s, "%.1f KHz", res->estimated_freq / 1000.0);
         sprintf(d, "Duty %.1f%%", res->duty_cycle);
-        ssd1306_draw_string(&oled, 1, 1, 2, s);
-        ssd1306_draw_string(&oled, 1, 24, 2, d);
+        ssd1306_draw_string(&oled, 1, 1, s);
+        ssd1306_draw_string(&oled, 1, 24, d);
 
         printf("(used computed capture duration %.3f ms from sample_rate %.2f Hz)\n", res->capture_duration_s * 1000.0, (double)(res->total_samples) / res->capture_duration_s);
     }
@@ -121,7 +121,7 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
         putchar(bits[i]);
     }
     putchar('\n');
-    ssd1306_draw_string(&oled, 1, 40, 2, bits);
+    ssd1306_draw_string(&oled, 1, 40, bits);
     ssd1306_show(&oled);
 
     printf("First 10 words (LSB first):\n");
@@ -200,7 +200,7 @@ int main() {
             printf("NO SIGNAL");
             set_rgb(0, 96, 0, &ws2812);
             ssd1306_fill(&oled, 0);
-            ssd1306_draw_string(&oled, 1, 1, 2, "No signal!");
+            ssd1306_draw_string(&oled, 1, 1, "No signal!");
             ssd1306_show(&oled);
             if (inactive_captures % 10 == 0) {
                 printf(" (%lu consecutive no-signal captures)\n", inactive_captures);

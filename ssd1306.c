@@ -108,30 +108,34 @@ void ssd1306_draw_pixel(ssd1306_t *disp, uint8_t x, uint8_t y, bool on) {
     }
 }
 
-void ssd1306_draw_char(ssd1306_t *disp, uint8_t x, uint8_t y, uint8_t scale, char c);
-
-void ssd1306_draw_string(ssd1306_t *disp, uint8_t x, uint8_t y, uint8_t scale, const char *str) {
-    while (*str) {
-        ssd1306_draw_char(disp, x, y, scale, *str);
-        x += 6 * scale;
-        str++;
-    }
-}
-
-void ssd1306_draw_char(ssd1306_t *disp, uint8_t x, uint8_t y, uint8_t scale, char c) {
+void ssd1306_draw_char(ssd1306_t *disp, uint8_t x, uint8_t y, char c) {
     if (c < 32 || c > 127) return;
-    
-    for (uint8_t i = 0; i < 5; i++) {
-        uint8_t line = font[(c - 32) * 5 + i];
-        for (uint8_t j = 0; j < 8; j++) {
+
+    // Render 5x8 source glyphs scaled to 12x16 characters:
+    // - horizontal scale = 2 (5 -> 10), add 1px padding left and right => 12 width
+    // - vertical scale = 2 (8 -> 16)
+    const uint8_t left_padding = 1;
+    for (uint8_t col = 0; col < 5; col++) {
+        uint8_t line = font[(c - 32) * 5 + col];
+        for (uint8_t row = 0; row < 8; row++) {
             if (line & 0x1) {
-                for (uint8_t s = 0; s < scale; s++) {
-                    for (uint8_t t = 0; t < scale; t++) {
-                        ssd1306_draw_pixel(disp, x + i * scale + s, y + j * scale + t, true);
-                    }
-                }
+                // draw 2x2 block for each source pixel
+                uint8_t sx = x + left_padding + col * 2;
+                uint8_t sy = y + row * 2;
+                ssd1306_draw_pixel(disp, sx,     sy,     true);
+                ssd1306_draw_pixel(disp, sx + 1, sy,     true);
+                ssd1306_draw_pixel(disp, sx,     sy + 1, true);
+                ssd1306_draw_pixel(disp, sx + 1, sy + 1, true);
             }
             line >>= 1;
         }
+    }
+}
+
+void ssd1306_draw_string(ssd1306_t *disp, uint8_t x, uint8_t y, const char *str) {
+    while (*str) {
+        ssd1306_draw_char(disp, x, y, *str);
+        x += FONT_WIDTH; // advance by 12 pixels per character
+        str++;
     }
 }
