@@ -27,7 +27,8 @@ double setup_sampler(sampler_t *sampler)  {
     pio_sm_config c = sampler_program_get_default_config(offset);
     sm_config_set_in_pins(&c, sampler->pin);
     
-    const float cycles_per_sample = 2.03125f; // !
+//    const float cycles_per_sample = 2.03125f; // !
+    const float cycles_per_sample = 1.0f; // !
     float div = 1.0; // sampling as fast as we can 
     sm_config_set_clkdiv(&c, div);
 

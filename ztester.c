@@ -168,7 +168,7 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
 
 int main() {
     stdio_init_all();
-    set_sys_clock_hz(200000000, true);
+    set_sys_clock_hz(100000000, true);
     
     ws2812_init(&ws2812);
     set_rgb(127, 0, 0, &ws2812);
