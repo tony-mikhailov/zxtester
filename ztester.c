@@ -9,6 +9,12 @@
 #include "sampler.h"
 #include "analyzer.h"
 #include "units.h"
+#include "button.h"
+
+//
+#define MIN_DISPLAY_SAMPLES 2
+#define MAX_DISPLAY_SAMPLES 32
+#define DISPLAY_SAMPLES 8
 
 // Debug UART
 #define DBG_UART_ID uart0
@@ -39,8 +45,8 @@ ssd1306_t oled = {
     .SCL = 5,
 };
 
-#define BTN_RIGHT_PIN 28
-#define BTN_LEFT_PIN 29
+#define BTN_RIGHT_PIN 14
+#define BTN_LEFT_PIN 13
 
 // Signal sampler
 #define SIGNAL_PIN 8
@@ -65,7 +71,7 @@ void setup_uart(uart_inst_t *uart, uint baudrate, uint tx, uint rx, uint databit
     uart_set_fifo_enabled(uart, true);
 }
 
-void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, const uint32_t *buffer, double sample_rate) {
+void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, const uint32_t *buffer, double sample_rate, uint32_t display_samples) {
     printf("\n=== Capture #%lu ===\n", capture_id);
     printf("Total samples: %lu\n", (unsigned long)res->total_samples);
     printf("High samples: %lu (%.1f%%)\n", (unsigned long)res->high_count,
@@ -120,7 +126,7 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
 
 
     // char bits[33] = {0};
-    uint32_t display_samples = 16;
+    // uint32_t display_samples = 16;
     uint32_t sample_width = oled.width / display_samples;
 
     uint16_t zero_y = 62;
@@ -193,6 +199,11 @@ void print_analysis_result(const analysis_result_t * res, uint32_t capture_id, c
 int main() {
     stdio_init_all();
     set_sys_clock_hz(128000000, true);
+
+    Button btn1;
+    button_init(&btn1, BTN_LEFT_PIN);  // кнопка на GPIO2
+    Button btn2;
+    button_init(&btn2, BTN_RIGHT_PIN);  // кнопка на GPIO2
     
     ws2812_init(&ws2812);
     set_rgb(127, 0, 0, &ws2812);
@@ -219,6 +230,9 @@ int main() {
     bool signal_detected = false;
     uint32_t inactive_captures = 0;
     uint32_t capture_count = 0;
+    uint32_t min_display_samples = MIN_DISPLAY_SAMPLES;
+    uint32_t max_display_samples = MAX_DISPLAY_SAMPLES;
+    uint32_t display_samples = DISPLAY_SAMPLES;
     while (true) {
         
         capture_count++;
@@ -237,14 +251,14 @@ int main() {
             printf("ACTIVE");
             analysis_result_t analysis = analyze_signal_buffer(sampler.sample_buffer, BUFFER_SIZE, sample_rate);
 
-            print_analysis_result(&analysis, capture_count, sampler.sample_buffer, sample_rate);
+            print_analysis_result(&analysis, capture_count, sampler.sample_buffer, sample_rate, display_samples);
             set_rgb(0, 0, 127, &ws2812);
 
 
         } else {
             inactive_captures++;
             printf("NO SIGNAL");
-            set_rgb(0, 96, 0, &ws2812);
+            set_rgb(45, 45, 0, &ws2812);
             ssd1306_fill(&oled, 0);
             ssd1306_draw_string(&oled, 1, 1, "No signal!");
             ssd1306_show(&oled);
@@ -257,6 +271,23 @@ int main() {
                 signal_detected = false;
             }
         }
+
+        button_tick(&btn1);
+        if (button_click(&btn1)) {
+            if (display_samples < max_display_samples) display_samples++;
+        }
+        if (button_hold(&btn1)) {
+            if (display_samples < max_display_samples) display_samples = display_samples * 2;
+        }
+        
+        button_tick(&btn2);
+        if (button_click(&btn2)) {
+            if (display_samples > min_display_samples) display_samples--;
+        }
+        if (button_hold(&btn2)) {
+            if (display_samples > min_display_samples) display_samples = display_samples / 2;
+        }
+
         // sleep_ms(3000);
     }
     
