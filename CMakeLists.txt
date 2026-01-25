@@ -10,6 +10,7 @@ project(${TARGET} C CXX ASM)
 pico_sdk_init()
 
 add_executable(${TARGET}
+    button.c
     ztester.c
     ssd1306.c
 	ws2812.c
