@@ -7,7 +7,7 @@
 
 ## Настройка окружения для сборки кода
 
-### Установка pico-sdk
+### Установка pico-sdk и настройка окружения
 
 ```bash
 sudo apt install cmake python3 build-essential gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
