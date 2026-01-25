@@ -7,7 +7,7 @@
 
 ## Настройка окружения для сборки кода
 
-Установка pico-sdk
+### Установка pico-sdk
 
 ```bash
 sudo apt install cmake python3 build-essential gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
@@ -15,26 +15,25 @@ sudo apt install cmake python3 build-essential gcc-arm-none-eabi libnewlib-arm-n
 git clone -b master https://github.com/raspberrypi/pico-sdk.git
 cd pico-sdk
 git submodule update --init
-cd ../
+export PICO_SDK_PATH=$(pwd)../pico-sdk
 ```
 
-## Клонирование репозитория
+### Клонирование репозитория
 
 ```bash
 git clone https://github.com/tony-mikhailov/zxtester
 cd zxtester
 ```
 
-## Сборка кода
+### Сборка кода
 
 ```bash
-export PICO_SDK_PATH=$(pwd)../pico-sdk
 mkdir -p build
 cd ./build
 cmake ..
 make
 ```
 
-## Готовые файлы прошивок
+### Готовые файлы прошивок
 
 - [ztester.uf2](tree/master/uf2)
